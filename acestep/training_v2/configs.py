@@ -37,6 +37,23 @@ class LoRAConfigV2(LoRAConfig):
         base["attention_type"] = self.attention_type
         return base
 
+    # --- Data loading (declared here for compatibility with base packages
+    #     that may not include these fields in TrainingConfig) -----------------
+    num_workers: int = 4
+    """Number of DataLoader worker processes."""
+
+    pin_memory: bool = True
+    """Pin memory in DataLoader for faster host-to-device transfer."""
+
+    prefetch_factor: int = 2
+    """Number of batches to prefetch per DataLoader worker."""
+
+    persistent_workers: bool = True
+    """Keep DataLoader workers alive between epochs."""
+
+    pin_memory_device: Optional[str] = None
+    """Device for pinned memory (None = default CUDA device)."""
+
 
 # ---------------------------------------------------------------------------
 # Extended Training config
