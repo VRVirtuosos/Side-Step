@@ -14,6 +14,8 @@ Side-Step is a CLI that runs to the side of ACE-Step 1.5 root folder (hence the 
 You give it audio files, it learns the style, and produces a small LoRA
 adapter file you can load at inference time to generate music in that style.
 
+This was mainly built with cloud computing in mind, but optimizers with lower VRAM requirements have been added for those who want to use it locally on underpowered gear.
+
 ## For the initial commit
 
 What works and what doesn't?
