@@ -9,7 +9,8 @@
   by dernet     ((BETA TESTING))
 ```
 
-**Side-Step** is a high-performance training "sidecar" for [ACE-Step 1.5](https://github.com/TencentGameMate/ACE-Step). It provides a corrected LoRA fine-tuning implementation that fixes fundamental bugs in the original trainer while adding low-VRAM support for local GPUs.
+**Side-Step** is a high-performance training "sidecar" for [ACE-Step 1.5](https://github.com/TencentGameMate/ACE-Step). It provides a corrected LoRA fine-tuning implementation that fixes fundamental bugs (for other models other than turbo) in the original trainer while adding SOMEWHAT** low-VRAM support for local GPUs.
+
 
 ## 🚀 Why Side-Step?
 
