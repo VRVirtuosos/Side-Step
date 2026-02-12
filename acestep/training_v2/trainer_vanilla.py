@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Callable, Dict, Generator, Optional, Tuple
 
 import torch
 
@@ -24,7 +24,17 @@ logger = logging.getLogger(__name__)
 
 
 class _HandlerShim:
-    """Minimal shim satisfying the ``LoRATrainer`` constructor."""
+    """Minimal shim satisfying the ``LoRATrainer`` constructor.
+
+    Wraps a decoder model, device string, and dtype so that the upstream
+    ``LoRATrainer`` receives the interface it expects from a full
+    ``dit_handler``.
+
+    Args:
+        model: The decoder ``torch.nn.Module`` to train.
+        device: Target device string (e.g. ``"cuda"``, ``"cpu"``).
+        dtype: Torch dtype for mixed-precision (e.g. ``torch.bfloat16``).
+    """
 
     def __init__(self, model: torch.nn.Module, device: str, dtype: torch.dtype) -> None:
         self.model = model
@@ -34,23 +44,43 @@ class _HandlerShim:
 
 
 class VanillaTrainer:
-    """Adapter that wraps the upstream ``LoRATrainer`` to match FixedTrainer's interface."""
+    """Adapter that wraps the upstream ``LoRATrainer`` to match FixedTrainer's interface.
+
+    Args:
+        lora_config: LoRA hyper-parameters (rank, alpha, dropout, targets).
+        training_config: Training hyper-parameters (LR, epochs, batch size, ...).
+        progress_callback: Optional callable invoked after each upstream
+            training update.  Signature:
+            ``(epoch: int, step: int, loss: float, lr: float, is_epoch_end: bool) -> Optional[bool]``.
+            Return ``False`` to request early stopping.
+
+    Attributes:
+        lora_config: Stored LoRA configuration.
+        training_config: Stored training configuration.
+        progress_callback: Stored callback (may be ``None``).
+    """
 
     def __init__(
         self,
-        lora_config,
-        training_config,
-        progress_callback=None,
+        lora_config: Any,
+        training_config: Any,
+        progress_callback: Optional[Callable[..., Optional[bool]]] = None,
     ) -> None:
         self.lora_config = lora_config
         self.training_config = training_config
         self.progress_callback = progress_callback
 
-    def train(self) -> None:
-        """Run vanilla training, calling progress_callback for each update."""
+    # -- Private helpers ---------------------------------------------------
+
+    def _build_configs(self) -> Tuple[LoRAConfig, TrainingConfig, int]:
+        """Map V2 config objects to base ``LoRAConfig`` / ``TrainingConfig``.
+
+        Returns:
+            A tuple of ``(lora_cfg, train_cfg, num_workers)`` where
+            *num_workers* is clamped to 0 on Windows.
+        """
         cfg = self.training_config
 
-        # Map V2 config fields to base LoRAConfig / TrainingConfig
         lora_cfg = LoRAConfig(
             r=getattr(self.lora_config, "rank", 64),
             alpha=getattr(self.lora_config, "alpha", 128),
@@ -58,6 +88,7 @@ class VanillaTrainer:
             target_modules=getattr(self.lora_config, "target_modules", ["to_q", "to_k", "to_v", "to_out.0"]),
             bias=getattr(self.lora_config, "bias", "none"),
         )
+
         # Windows uses spawn-based multiprocessing which breaks DataLoader workers
         num_workers = getattr(cfg, "num_workers", 4)
         if sys.platform == "win32" and num_workers > 0:
@@ -79,7 +110,17 @@ class VanillaTrainer:
             pin_memory=getattr(cfg, "pin_memory", True),
         )
 
-        # Resolve device / precision
+        return lora_cfg, train_cfg, num_workers
+
+    @staticmethod
+    def _setup_device_and_model(
+        cfg: Any,
+    ) -> Tuple[Any, torch.dtype, torch.nn.Module]:
+        """Auto-detect GPU and load the decoder model.
+
+        Returns:
+            A tuple of ``(gpu_info, dtype, model)``.
+        """
         from acestep.training_v2.gpu_utils import detect_gpu
 
         gpu = detect_gpu(
@@ -87,6 +128,7 @@ class VanillaTrainer:
             requested_precision=getattr(cfg, "precision", "auto"),
         )
         dtype_map = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
+        dtype = dtype_map.get(gpu.precision, torch.bfloat16)
 
         model = load_decoder_for_training(
             checkpoint_dir=getattr(cfg, "checkpoint_dir", "./checkpoints"),
@@ -95,23 +137,45 @@ class VanillaTrainer:
             precision=gpu.precision,
         )
 
-        handler = _HandlerShim(
-            model=model,
-            device=gpu.device,
-            dtype=dtype_map.get(gpu.precision, torch.bfloat16),
-        )
+        return gpu, dtype, model
 
+    @staticmethod
+    def _run_training(
+        model: torch.nn.Module,
+        gpu: Any,
+        dtype: torch.dtype,
+        lora_cfg: LoRAConfig,
+        train_cfg: TrainingConfig,
+        cfg: Any,
+    ) -> Generator:
+        """Construct handler + LoRATrainer and yield training updates.
+
+        Yields:
+            Tuples from the upstream ``LoRATrainer.train_from_preprocessed``.
+        """
+        handler = _HandlerShim(model=model, device=gpu.device, dtype=dtype)
         trainer = LoRATrainer(handler, lora_cfg, train_cfg)
         dataset_dir = getattr(cfg, "dataset_dir", "")
         resume_from = getattr(cfg, "resume_from", None)
 
-        for update in trainer.train_from_preprocessed(
+        yield from trainer.train_from_preprocessed(
             tensor_dir=dataset_dir,
             resume_from=resume_from,
-        ):
+        )
+
+    # -- Public API --------------------------------------------------------
+
+    def train(self) -> None:
+        """Run vanilla training, calling *progress_callback* for each update."""
+        cfg = self.training_config
+
+        lora_cfg, train_cfg, _num_workers = self._build_configs()
+        gpu, dtype, model = self._setup_device_and_model(cfg)
+
+        for update in self._run_training(model, gpu, dtype, lora_cfg, train_cfg, cfg):
             if self.progress_callback:
                 # Upstream yields (step, loss, msg) tuples
-                step, loss, msg = update if len(update) == 3 else (update[0], update[1], "")
+                step, loss, _msg = update if len(update) == 3 else (update[0], update[1], "")
                 should_continue = self.progress_callback(
                     epoch=0, step=step, loss=loss, lr=0.0, is_epoch_end=False,
                 )

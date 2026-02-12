@@ -219,14 +219,14 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_data.add_argument(
         "--prefetch-factor",
         type=int,
-        default=2,
-        help="DataLoader prefetch factor (default: 2)",
+        default=2 if _DEFAULT_NUM_WORKERS > 0 else 0,
+        help="DataLoader prefetch factor (default: 2; 0 on Windows)",
     )
     g_data.add_argument(
         "--persistent-workers",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Keep workers alive between epochs (default: True)",
+        default=_DEFAULT_NUM_WORKERS > 0,
+        help="Keep workers alive between epochs (default: True; False on Windows)",
     )
 
     # -- Training hyperparams ------------------------------------------------
@@ -638,6 +638,19 @@ def build_configs(args: argparse.Namespace) -> Tuple[LoRAConfigV2, TrainingConfi
         attention_type=attention_type,
     )
 
+    # -- Clamp DataLoader flags when num_workers <= 0 -------------------------
+    num_workers = args.num_workers
+    prefetch_factor = args.prefetch_factor
+    persistent_workers = args.persistent_workers
+
+    if num_workers <= 0:
+        if persistent_workers:
+            logger.info("[Side-Step] num_workers=0 -- forcing persistent_workers=False")
+            persistent_workers = False
+        if prefetch_factor and prefetch_factor > 0:
+            logger.info("[Side-Step] num_workers=0 -- forcing prefetch_factor=0")
+            prefetch_factor = 0
+
     # -- Training config ----------------------------------------------------
     train_cfg = TrainingConfigV2(
         learning_rate=args.learning_rate,
@@ -650,10 +663,10 @@ def build_configs(args: argparse.Namespace) -> Tuple[LoRAConfigV2, TrainingConfi
         seed=args.seed,
         output_dir=args.output_dir,
         save_every_n_epochs=args.save_every,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
         pin_memory=args.pin_memory,
-        prefetch_factor=args.prefetch_factor,
-        persistent_workers=args.persistent_workers,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=persistent_workers,
         # V2 extensions
         optimizer_type=getattr(args, "optimizer_type", "adamw"),
         scheduler_type=getattr(args, "scheduler_type", "cosine"),
