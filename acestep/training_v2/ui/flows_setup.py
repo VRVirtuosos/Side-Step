@@ -153,9 +153,9 @@ def run_first_setup() -> dict:
     _print(f"  Checkpoint dir : [bold]{data['checkpoint_dir']}[/]")
     if data["vanilla_enabled"] and data["ace_step_dir"]:
         _print(f"  ACE-Step dir   : [bold]{data['ace_step_dir']}[/]")
-        _print(f"  Vanilla mode   : [bold green]enabled[/]")
+        _print("  Vanilla mode   : [bold green]enabled[/]")
     else:
-        _print(f"  Vanilla mode   : [bold yellow]disabled[/] (corrected mode is standalone)")
+        _print("  Vanilla mode   : [bold yellow]disabled[/] (corrected mode is standalone)")
     _print("")
     _print("  [dim]You can change these any time from the main menu → Settings.[/]\n")
 
@@ -167,7 +167,7 @@ def run_first_setup() -> dict:
 # ---------------------------------------------------------------------------
 
 def run_settings_editor() -> dict | None:
-    """Re-run the setup flow, pre-filling current settings.
+    """Re-run the setup flow from defaults.
 
     Returns the updated settings dict, or ``None`` if the user cancels.
     """

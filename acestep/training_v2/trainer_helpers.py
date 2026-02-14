@@ -189,6 +189,21 @@ def save_checkpoint(
     }
     state_path = os.path.join(ckpt_dir, "training_state.pt")
     torch.save(training_state, state_path)
+
+    # Also write a safetensors file with epoch/global_step so that
+    # load_training_checkpoint (which reads .safetensors) can restore
+    # training progress metadata.
+    try:
+        from safetensors.torch import save_file as _save_safetensors
+        meta_tensors = {
+            "epoch": torch.tensor([epoch], dtype=torch.int64),
+            "global_step": torch.tensor([global_step], dtype=torch.int64),
+        }
+        sf_path = os.path.join(ckpt_dir, "training_state.safetensors")
+        _save_safetensors(meta_tensors, sf_path)
+    except Exception as exc:
+        logger.debug("Could not write training_state.safetensors: %s", exc)
+
     logger.info(
         "Training checkpoint saved to %s (epoch %d, step %d)",
         ckpt_dir, epoch, global_step,

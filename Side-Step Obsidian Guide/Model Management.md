@@ -3,7 +3,7 @@
 
 ACE-Step models are organized as subdirectories under a root `checkpoints/` folder. Each model variant has its own folder with a `config.json` and weight files:
 
-```
+```text
 checkpoints/
   acestep-v15-turbo/     # Turbo (8-step accelerated)
     config.json

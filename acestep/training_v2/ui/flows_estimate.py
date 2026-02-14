@@ -7,6 +7,7 @@ Uses a step-list pattern for go-back navigation.
 from __future__ import annotations
 
 import argparse
+from typing import Any, Callable
 
 from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import (
@@ -23,7 +24,15 @@ from acestep.training_v2.ui.prompt_helpers import (
 # ---- Steps ------------------------------------------------------------------
 
 def _step_model(a: dict) -> None:
-    """Checkpoint, variant, and dataset."""
+    """Checkpoint, variant, and dataset.
+
+    Args:
+        a: Mutated answers dict.  Sets ``checkpoint_dir``,
+            ``model_variant``, and ``dataset_dir``.
+
+    Raises:
+        GoBack: If the user presses back.
+    """
     section("Gradient Sensitivity Estimation")
     if is_rich_active() and console is not None:
         console.print(
@@ -52,7 +61,15 @@ def _step_model(a: dict) -> None:
 
 
 def _step_params(a: dict) -> None:
-    """Estimation parameters."""
+    """Estimation parameters.
+
+    Args:
+        a: Mutated answers dict.  Sets ``estimate_batches``,
+            ``top_k``, and ``granularity``.
+
+    Raises:
+        GoBack: If the user presses back.
+    """
     section("Estimation Parameters (press Enter for defaults)")
     a["estimate_batches"] = ask("Number of estimation batches", default=a.get("estimate_batches", 5), type_fn=int, allow_back=True)
     a["top_k"] = ask("Top-K layers to highlight", default=a.get("top_k", 16), type_fn=int, allow_back=True)
@@ -60,7 +77,15 @@ def _step_params(a: dict) -> None:
 
 
 def _step_lora(a: dict) -> None:
-    """LoRA settings used during estimation."""
+    """LoRA settings used during estimation.
+
+    Args:
+        a: Mutated answers dict.  Sets ``rank``, ``alpha``,
+            and ``dropout``.
+
+    Raises:
+        GoBack: If the user presses back.
+    """
     section("LoRA Settings (press Enter for defaults)")
     a["rank"] = ask("Rank", default=a.get("rank", 64), type_fn=int, allow_back=True)
     a["alpha"] = ask("Alpha", default=a.get("alpha", 128), type_fn=int, allow_back=True)
@@ -68,7 +93,14 @@ def _step_lora(a: dict) -> None:
 
 
 def _step_output(a: dict) -> None:
-    """Output path."""
+    """Output path.
+
+    Args:
+        a: Mutated answers dict.  Sets ``estimate_output``.
+
+    Raises:
+        GoBack: If the user presses back.
+    """
     a["estimate_output"] = ask(
         "Output JSON path",
         default=a.get("estimate_output", native_path("./estimate_results.json")),
@@ -78,7 +110,7 @@ def _step_output(a: dict) -> None:
 
 # ---- Step list and runner ---------------------------------------------------
 
-_STEPS: list[tuple[str, callable]] = [
+_STEPS: list[tuple[str, Callable[..., Any]]] = [
     ("Model & Dataset", _step_model),
     ("Estimation Parameters", _step_params),
     ("LoRA Settings", _step_lora),

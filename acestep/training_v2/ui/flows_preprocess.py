@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any, Callable
 
 from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import (
@@ -186,7 +187,7 @@ def _step_output(a: dict) -> None:
 
 # ---- Step list and runner ---------------------------------------------------
 
-_STEPS: list[tuple[str, callable]] = [
+_STEPS: list[tuple[str, Callable[..., Any]]] = [
     ("Model & Checkpoint", _step_model),
     ("Audio Source", _step_source),
     ("Output Settings", _step_output),

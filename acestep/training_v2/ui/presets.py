@@ -224,10 +224,16 @@ def load_preset(name: str) -> Optional[Dict[str, Any]]:
     """Load a preset by name and return the answers dict.
 
     Search order: local -> global -> built-in.
-    Returns None if not found.
+    Returns None if not found or if the name is invalid.
     """
+    try:
+        sanitized = _sanitize_name(name)
+    except ValueError:
+        logger.warning("Invalid preset name: %r", name)
+        return None
+
     for directory in [_local_presets_dir(), _global_presets_dir(), _builtin_presets_dir()]:
-        fp = directory / f"{name}.json"
+        fp = directory / f"{sanitized}.json"
         if fp.is_file():
             try:
                 data = json.loads(fp.read_text(encoding="utf-8"))

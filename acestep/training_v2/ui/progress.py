@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from acestep.training_v2.ui import TrainingUpdate, console, is_rich_active
 from acestep.training_v2.ui.gpu_monitor import GPUMonitor
@@ -153,7 +153,7 @@ def _build_display(
     stats: TrainingStats,
     gpu: GPUMonitor,
     recent_msgs: list,
-) -> "Rich renderable":
+) -> Any:
     """Build the composite Rich renderable for one Live refresh."""
     from rich.console import Group
     from rich.panel import Panel

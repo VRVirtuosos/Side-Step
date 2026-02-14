@@ -22,9 +22,36 @@ try:
     _VANILLA_AVAILABLE = True
 except ImportError:
     _VANILLA_AVAILABLE = False
-    # Use vendored configs so the module can at least be imported for
-    # type checking, even though the trainer itself won't work.
-    from acestep.training_v2._vendor.configs import LoRAConfig, TrainingConfig  # type: ignore[no-redef]
+
+    # Stub definitions so the module can be imported for type-checking
+    # even when the real package is missing (avoids a second ImportError).
+    from dataclasses import dataclass as _dataclass
+
+    @_dataclass
+    class LoRAConfig:  # type: ignore[no-redef]
+        """Stub for LoRAConfig."""
+        r: int = 64
+        alpha: int = 128
+        dropout: float = 0.0
+        target_modules: list = None  # type: ignore[assignment]
+        bias: str = "none"
+
+    @_dataclass
+    class TrainingConfig:  # type: ignore[no-redef]
+        """Stub for TrainingConfig."""
+        learning_rate: float = 1e-4
+        batch_size: int = 1
+        gradient_accumulation_steps: int = 4
+        max_epochs: int = 100
+        warmup_steps: int = 500
+        weight_decay: float = 0.01
+        max_grad_norm: float = 1.0
+        seed: int = 42
+        output_dir: str = "./lora_output"
+        save_every_n_epochs: int = 10
+        num_workers: int = 0
+        pin_memory: bool = True
+
     LoRATrainer = None  # type: ignore[assignment,misc]
 from acestep.training_v2.model_loader import load_decoder_for_training
 

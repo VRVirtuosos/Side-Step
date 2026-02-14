@@ -12,8 +12,10 @@ from acestep.training_v2.cli.args import VARIANT_DIR_MAP
 
 
 def validate_paths(args: argparse.Namespace) -> bool:
-    """Validate that required paths exist.  Returns True if all OK.
+    """Validate that required paths exist and attach the resolved model dir.
 
+    On success, sets ``args.model_dir`` to the resolved ``Path`` so that
+    callers can consume it directly.  Returns ``True`` if all OK.
     Prints ``[FAIL]`` messages and returns False on the first error.
     """
     sub = args.subcommand
@@ -45,6 +47,9 @@ def validate_paths(args: argparse.Namespace) -> bool:
             file=sys.stderr,
         )
         return False
+
+    # Attach resolved path so callers can use it directly
+    args.model_dir = model_dir
 
     # Dataset dir
     ds_dir = getattr(args, "dataset_dir", None)

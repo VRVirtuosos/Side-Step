@@ -1,5 +1,6 @@
+# VRAM Optimization Guide
 
-This page documents every VRAM optimization Side-Step applies, the VRAM profiles for different GPU tiers
+This page documents every VRAM optimization Side-Step applies, the VRAM profiles for different GPU tiers.
 
 ---
 

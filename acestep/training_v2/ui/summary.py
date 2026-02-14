@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.progress import TrainingStats
@@ -173,7 +173,7 @@ def _show_rich(
 
 def _build_checkpoint_grid(
     stats: TrainingStats, output_dir: str,
-) -> "Rich renderable | None":
+) -> Optional[Any]:
     """Build a 2-column grid of saved checkpoints, or None if there are none."""
     from rich.table import Table
     from rich.text import Text

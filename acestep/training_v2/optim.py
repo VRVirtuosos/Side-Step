@@ -119,11 +119,16 @@ def build_scheduler(
     warmup_steps: int = 500,
     lr: float = 1e-4,
     optimizer_type: str = "adamw",
+    n_restarts: int = 4,
 ):
     """Create a learning rate scheduler from a string key.
 
     When the optimizer is Prodigy, defaults to constant schedule
     (Prodigy manages LR internally).
+
+    Args:
+        n_restarts: Number of cosine restart cycles for the
+            ``cosine_restarts`` scheduler.  Ignored by other types.
     """
     scheduler_type = scheduler_type.lower().strip()
 
@@ -158,9 +163,10 @@ def build_scheduler(
         )
     elif scheduler_type == "cosine_restarts":
         # Cyclical cosine: LR resets to peak multiple times during training.
+        # T_0 = cycle length = remaining / n_restarts.
         main_sched = CosineAnnealingWarmRestarts(
             optimizer,
-            T_0=max(1, remaining),
+            T_0=max(1, remaining // max(1, n_restarts)),
             T_mult=1,
             eta_min=lr * 0.01,
         )

@@ -33,6 +33,7 @@ def run_estimation(
     granularity: str = "module",
     progress_callback: Optional[Callable] = None,
     cancel_check: Optional[Callable] = None,
+    cfg_ratio: float = 0.0,
 ) -> List[Dict[str, Any]]:
     """Run gradient sensitivity analysis and return ranked modules.
 
@@ -46,6 +47,10 @@ def run_estimation(
         granularity: ``"module"`` or ``"layer"``.
         progress_callback: ``(batch, total, module_name) -> None``.
         cancel_check: ``() -> bool`` -- return True to cancel.
+        cfg_ratio: CFG dropout ratio (default 0).  When > 0 and the model
+            has a ``null_condition_emb``, CFG dropout is applied to
+            ``encoder_hidden_states`` so sensitivity reflects the same
+            masking used during training.
 
     Returns:
         List of dicts ``[{"module": name, "sensitivity": float}, ...]``
@@ -142,6 +147,15 @@ def run_estimation(
                 autocast_ctx = nullcontext()
 
             with autocast_ctx:
+                # ---- CFG dropout (match training when cfg_ratio > 0) ----
+                if cfg_ratio > 0.0 and hasattr(model, "null_condition_emb"):
+                    from acestep.training_v2.fixed_lora_module import apply_cfg_dropout
+                    encoder_hidden_states = apply_cfg_dropout(
+                        encoder_hidden_states,
+                        model.null_condition_emb,
+                        cfg_ratio=cfg_ratio,
+                    )
+
                 # Flow matching noise
                 x0 = target_latents
                 x1 = torch.randn_like(x0)

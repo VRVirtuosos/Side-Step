@@ -304,7 +304,7 @@ class FixedLoRATrainer:
             else:
                 yield TrainingUpdate(
                     0, 0.0, "[WARN] Gradient checkpointing not supported by this model",
-                    kind="warning",
+                    kind="warn",
                 )
         else:
             yield TrainingUpdate(

@@ -210,16 +210,16 @@ def _run_preprocess(args) -> int:
     source_label = dataset_json if dataset_json else audio_dir
 
     # Show summary and confirm before starting
-    print(f"\n{'='*60}")
-    print(f"  Preprocessing Summary")
-    print(f"{'='*60}")
+    print("\n" + "=" * 60)
+    print("  Preprocessing Summary")
+    print("=" * 60)
     print(f"  Source:        {source_label}")
     print(f"  Output:        {tensor_output}")
     print(f"  Checkpoint:    {args.checkpoint_dir}")
     print(f"  Model variant: {args.model_variant}")
     print(f"  Max duration:  {getattr(args, 'max_duration', 240.0)}s")
-    print(f"{'='*60}")
-    print(f"[INFO] Two-pass pipeline (sequential model loading for low VRAM)")
+    print("=" * 60)
+    print("[INFO] Two-pass pipeline (sequential model loading for low VRAM)")
 
     try:
         result = preprocess_audio_files(
@@ -264,16 +264,16 @@ def _run_estimate(args) -> int:
     num_batches = getattr(args, "estimate_batches", 5) or 5
 
     # Show summary before starting
-    print(f"\n{'='*60}")
-    print(f"  Gradient Estimation Summary")
-    print(f"{'='*60}")
+    print("\n" + "=" * 60)
+    print("  Gradient Estimation Summary")
+    print("=" * 60)
     print(f"  Checkpoint:    {args.checkpoint_dir}")
     print(f"  Model variant: {args.model_variant}")
     print(f"  Dataset:       {args.dataset_dir}")
     print(f"  Batches:       {num_batches}")
     print(f"  Top-K:         {getattr(args, 'top_k', 16)}")
     print(f"  Granularity:   {getattr(args, 'granularity', 'module')}")
-    print(f"{'='*60}")
+    print("=" * 60)
     print(f"[INFO] Running gradient estimation ({num_batches} batches) ...")
     try:
         results = run_estimation(
@@ -297,12 +297,12 @@ def _run_estimate(args) -> int:
         return 1
 
     # Display results
-    print(f"\n{'='*60}")
+    print("\n" + "=" * 60)
     print(f"  Top-{len(results)} Modules by Gradient Sensitivity")
-    print(f"{'='*60}")
+    print("=" * 60)
     for i, entry in enumerate(results, 1):
         print(f"  {i:3d}. {entry['module']:<50s}  {entry['sensitivity']:.6f}")
-    print(f"{'='*60}\n")
+    print("=" * 60 + "\n")
 
     # Save to JSON
     output_path = getattr(args, "estimate_output", None) or "./estimate_results.json"

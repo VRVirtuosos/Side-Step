@@ -10,7 +10,7 @@ This walkthrough takes you from raw audio files to generating music with a train
 
 Collect your audio files into a single folder. Side-Step supports `.wav`, `.mp3`, `.flac`, `.ogg`, `.opus`, and `.m4a`.
 
-```
+```text
 my_audio/
 ├── track1.wav
 ├── track2.wav
