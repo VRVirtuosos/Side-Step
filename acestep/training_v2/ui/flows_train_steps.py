@@ -87,13 +87,11 @@ def step_required(a: dict) -> None:
     )
 
 
-def step_lora(a: dict) -> None:
-    """LoRA hyperparameters."""
-    section("LoRA Settings (press Enter for defaults)")
-    a["rank"] = ask("Rank", default=a.get("rank", 64), type_fn=int, allow_back=True)
-    a["alpha"] = ask("Alpha", default=a.get("alpha", 128), type_fn=int, allow_back=True)
-    a["dropout"] = ask("Dropout", default=a.get("dropout", 0.1), type_fn=float, allow_back=True)
+_DEFAULT_PROJECTIONS = "q_proj k_proj v_proj o_proj"
 
+
+def _ask_attention_type(a: dict) -> None:
+    """Prompt for attention layer targeting."""
     a["attention_type"] = menu(
         "Which attention layers to target?",
         [
@@ -105,11 +103,42 @@ def step_lora(a: dict) -> None:
         allow_back=True,
     )
 
-    a["target_modules_str"] = ask(
-        "Target projections",
-        default=a.get("target_modules_str", "q_proj k_proj v_proj o_proj"),
-        allow_back=True,
-    )
+
+def _ask_projections(a: dict) -> None:
+    """Prompt for target projections, splitting by attention type when 'both'.
+
+    When the user selects "both", asks separately for self-attention and
+    cross-attention projections so they can be configured independently.
+    When "self" or "cross", asks once as a single set.
+    """
+    if a.get("attention_type") == "both":
+        a["self_target_modules_str"] = ask(
+            "Self-attention projections",
+            default=a.get("self_target_modules_str", _DEFAULT_PROJECTIONS),
+            allow_back=True,
+        )
+        a["cross_target_modules_str"] = ask(
+            "Cross-attention projections",
+            default=a.get("cross_target_modules_str", _DEFAULT_PROJECTIONS),
+            allow_back=True,
+        )
+    else:
+        a["target_modules_str"] = ask(
+            "Target projections",
+            default=a.get("target_modules_str", _DEFAULT_PROJECTIONS),
+            allow_back=True,
+        )
+
+
+def step_lora(a: dict) -> None:
+    """LoRA hyperparameters."""
+    section("LoRA Settings (press Enter for defaults)")
+    a["rank"] = ask("Rank", default=a.get("rank", 64), type_fn=int, allow_back=True)
+    a["alpha"] = ask("Alpha", default=a.get("alpha", 128), type_fn=int, allow_back=True)
+    a["dropout"] = ask("Dropout", default=a.get("dropout", 0.1), type_fn=float, allow_back=True)
+
+    _ask_attention_type(a)
+    _ask_projections(a)
 
 
 def step_lokr(a: dict) -> None:
@@ -140,22 +169,8 @@ def step_lokr(a: dict) -> None:
         allow_back=True,
     )
 
-    a["attention_type"] = menu(
-        "Which attention layers to target?",
-        [
-            ("both", "Both self-attention and cross-attention"),
-            ("self", "Self-attention only (audio patterns)"),
-            ("cross", "Cross-attention only (text conditioning)"),
-        ],
-        default=1,
-        allow_back=True,
-    )
-
-    a["target_modules_str"] = ask(
-        "Target projections",
-        default=a.get("target_modules_str", "q_proj k_proj v_proj o_proj"),
-        allow_back=True,
-    )
+    _ask_attention_type(a)
+    _ask_projections(a)
 
 
 def _default_shift(a: dict) -> float:
@@ -319,3 +334,55 @@ def step_advanced_logging(a: dict) -> None:
     a["log_dir"] = None if log_dir_raw in (None, "None", "") else log_dir_raw
     a["log_heavy_every"] = ask("Log gradient norms every N steps", default=a.get("log_heavy_every", 50), type_fn=int, allow_back=True)
     a["sample_every_n_epochs"] = ask("Generate sample every N epochs (0=disabled)", default=a.get("sample_every_n_epochs", 0), type_fn=int, allow_back=True)
+
+
+def step_chunk_duration(a: dict) -> None:
+    """Latent chunking for data augmentation and VRAM savings."""
+    section("Latent Chunking (optional)")
+
+    if is_rich_active() and console is not None:
+        console.print(
+            "  [dim]Latent chunking slices preprocessed tensors into random\n"
+            "  fixed-length windows each iteration, providing data augmentation\n"
+            "  (the model sees different parts of each song every epoch) and\n"
+            "  reducing VRAM usage for long songs.\n\n"
+            "  [bold yellow]Warning:[/][dim] Chunks shorter than 60 seconds can hurt\n"
+            "  training quality instead of enriching it. Use shorter chunks\n"
+            "  only if you need to reduce VRAM and understand the trade-off.\n"
+            "  Leave disabled (0) if your songs are already short or you have\n"
+            "  enough VRAM.[/]"
+        )
+    else:
+        print(
+            "  Latent chunking slices preprocessed tensors into random\n"
+            "  fixed-length windows each iteration, providing data augmentation\n"
+            "  (the model sees different parts of each song every epoch) and\n"
+            "  reducing VRAM usage for long songs.\n\n"
+            "  WARNING: Chunks shorter than 60 seconds can hurt training quality\n"
+            "  instead of enriching it. Use shorter chunks only if you need to\n"
+            "  reduce VRAM and understand the trade-off.\n"
+            "  Leave disabled (0) if your songs are already short or you have\n"
+            "  enough VRAM."
+        )
+
+    chunk = ask(
+        "Chunk duration in seconds (0 = disabled, recommended: 60)",
+        default=a.get("chunk_duration", 0),
+        type_fn=int, allow_back=True,
+    )
+
+    if chunk > 0 and chunk < 60:
+        if is_rich_active() and console is not None:
+            console.print(
+                f"  [bold yellow]Caution:[/] {chunk}s chunks are below the recommended\n"
+                "  60s minimum. This may reduce training quality, especially for\n"
+                "  full-length inference. Consider using 60s or higher."
+            )
+        else:
+            print(
+                f"  Caution: {chunk}s chunks are below the recommended 60s minimum.\n"
+                "  This may reduce training quality, especially for full-length\n"
+                "  inference. Consider using 60s or higher."
+            )
+
+    a["chunk_duration"] = chunk if chunk > 0 else None

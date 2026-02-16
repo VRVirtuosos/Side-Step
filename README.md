@@ -25,7 +25,9 @@ If you're training LoRAs for ACE-Step, Side-Step is built to get you from audio 
 - **Low VRAM, real hardware.** Trains on 8 GB GPUs. Gradient checkpointing, 8-bit optimizers, encoder offloading, and VRAM-tier presets are built in. No A100 required.
 - **Interactive wizard or CLI.** Step-by-step wizard with go-back, presets, and flow chaining. Or one-liner CLI for scripted pipelines and cloud runs.
 - **ComfyUI-ready exports.** One-click conversion from PEFT LoRA to diffusers format. Your adapter loads in ComfyUI without manual key remapping.
-- **Two-pass preprocessing.** Converts raw audio to training tensors in two low-VRAM passes (~3 GB then ~6 GB). Preprocess once, train with any adapter type.
+- **Two-pass preprocessing.** Converts raw audio to training tensors in two low-VRAM passes (~3 GB then ~6 GB). Auto-detects duration, optional loudness normalization. Preprocess once, train with any adapter type.
+- **Build datasets from folders.** Drop your audio files + matching `.txt` metadata in a folder -- Side-Step generates the `dataset.json` for you. No spreadsheets, no JSON editing.
+- **Latent chunking for data augmentation.** Optionally slice long songs into random windows (default 60s) at the latent level. Each epoch sees different parts of each song, improving generalization and reducing VRAM.
 - **No ACE-Step install needed.** Fully standalone. All required utilities are bundled. You only need the model checkpoint files.
 
 ### What Side-Step fixes in the upstream trainer:
@@ -38,7 +40,7 @@ If you're training LoRAs for ACE-Step, Side-Step is built to get you from audio 
 ---
 
 ## Beta Status & Support
-**Current Version:** 0.8.1-beta
+**Current Version:** 0.8.2-beta
 
 | Feature | Status | Note |
 | :--- | :--- | :--- |
@@ -46,7 +48,9 @@ If you're training LoRAs for ACE-Step, Side-Step is built to get you from audio 
 | **Training (LoKR)** | **Experimental** | Uses LyCORIS. May have rough edges. |
 | **ComfyUI LoRA Export** | Working | Converts PEFT adapters to diffusers format. |
 | **Interactive Wizard** | Working | `uv run train.py` with no args. Session loop, go-back, presets, first-run setup. |
-| **CLI Preprocessing** | Beta | Two-pass pipeline, low VRAM. Adapter-agnostic (same tensors for LoRA and LoKR). |
+| **CLI Preprocessing** | Working | Two-pass pipeline, low VRAM. Auto-detects duration, optional normalization. |
+| **Build Dataset from Folder** | Working | Scan audio + `.txt` metadata to generate `dataset.json`. Wizard or CLI. |
+| **Latent Chunking** | Working | Random windowing of preprocessed tensors for data augmentation + VRAM savings. |
 | **Gradient Estimation** | Beta | Ranks attention modules by sensitivity. In Experimental menu. |
 | **Presets System** | Working | Save/load/manage training configurations. Stores adapter type. |
 | **TUI (Textual UI)** | **BROKEN** | Do not use `sidestep_tui.py` yet. |
@@ -57,6 +61,31 @@ If you're training LoRAs for ACE-Step, Side-Step is built to get you from audio 
 > git checkout <hash>
 > ```
 > If you hit issues, please open an issue -- it helps us stabilize faster.
+
+### What's new in 0.8.2-beta
+
+**Build dataset from folder:**
+- **No more hand-editing JSON.** New "Build dataset from folder" option in the wizard main menu (and `python train.py build-dataset` CLI subcommand). Point it at a folder of audio files with matching `.txt` metadata and it generates a ready-to-use `dataset.json`. Supports three metadata conventions:
+  - `Song.txt` with `key: value` pairs (caption, genre, bpm, key, lyrics)
+  - `Song.caption.txt` + `Song.lyrics.txt` (upstream ACE-Step format)
+  - No metadata files (caption derived from filename, marked as instrumental)
+
+**Auto-detect max duration:**
+- **No more guessing.** Preprocessing now auto-detects the longest audio clip and sets `max_duration` automatically. The wizard shows per-song duration feedback (name, length) so you can see exactly what's being processed.
+
+**Audio normalization:**
+- **Consistent loudness across training data.** Preprocessing now offers optional audio normalization before VAE encoding. Choose **peak** (-1.0 dBFS, matches ACE-Step output, no extra deps) or **LUFS** (-14 LUFS, broadcast standard, perceptually uniform). Available in both the wizard and CLI (`--normalize peak` or `--normalize lufs`).
+
+**Latent chunking for data augmentation:**
+- **Random windowing of long songs.** New `--chunk-duration` option (default: disabled, recommended: 60s) slices preprocessed latent tensors into random fixed-length windows on every training iteration. Each epoch sees different parts of each song, improving generalization and reducing VRAM for long audio. Chunks shorter than 60 seconds can hurt training quality -- the wizard warns about this.
+
+**Per-attention-type projection selection:**
+- **Independent self/cross projections.** When targeting both attention types, the wizard and CLI now let you choose different projections for self-attention and cross-attention independently. For example, train `q_proj v_proj` on self-attention while training all four projections on cross-attention. Previously, the same projection set was applied to both.
+- **Wizard:** When you select "Both self-attention and cross-attention", the wizard now asks "Self-attention projections" and "Cross-attention projections" separately. Applies to both LoRA and LoKR.
+- **CLI:** New `--self-target-modules` and `--cross-target-modules` flags. When used with `--attention-type both`, each set is prefixed and merged independently. When not provided, `--target-modules` applies to both (backward compatible).
+
+**Refactoring:**
+- Shared `_ask_attention_type` and `_ask_projections` helpers eliminate duplicated prompting logic between LoRA and LoKR wizard steps.
 
 ### What's new in 0.8.1-beta
 
@@ -200,6 +229,7 @@ Everything is installed by `uv sync` -- no extras, no manual pip installs:
 - **bitsandbytes** -- 8-bit optimizers (AdamW8bit) for ~30-40% optimizer VRAM savings.
 - **Prodigy** -- Adaptive optimizer that auto-tunes learning rate.
 - **LyCORIS** -- LoKR adapter support (experimental Kronecker product adapters).
+- **pyloudnorm** -- LUFS loudness normalization for consistent training audio levels.
 
 ---
 
@@ -252,16 +282,43 @@ uv run train.py fixed \
     --epochs 100
 ```
 
-### Option C: Preprocess Audio (Two-Pass, Low VRAM)
+### Option C: Build a Dataset from a Folder
+If you don't have a `dataset.json`, point the builder at a folder of audio files with matching `.txt` metadata:
+```bash
+uv run train.py build-dataset --input ./my_songs
+```
+Your folder should look like this:
+```text
+my_songs/
+  MyTrack.wav
+  MyTrack.txt          <-- key: value pairs (caption, genre, bpm, key, lyrics)
+  AnotherSong.mp3
+  AnotherSong.txt
+```
+Inside each `.txt` (same name as the audio file):
+```text
+caption: dreamy ambient synth pad, reverb-heavy
+genre: ambient, electronic
+bpm: 90
+key: C minor
+lyrics:
+[Verse]
+Floating through the stars tonight ...
+```
+Songs without a matching `.txt` are included as instrumentals with the caption derived from the filename. Also supports ACE-Step's `Song.caption.txt` + `Song.lyrics.txt` convention.
+
+### Option D: Preprocess Audio (Two-Pass, Low VRAM)
 Convert raw audio files into `.pt` tensors without loading all models at once.
 The pipeline runs in two passes: (1) VAE + Text Encoder (~3 GB), then (2) DIT encoder (~6 GB).
+Duration is auto-detected from the longest audio file.
 ```bash
 uv run train.py fixed \
     --checkpoint-dir ./checkpoints \
     --model-variant turbo \
     --preprocess \
     --audio-dir ./my_audio \
-    --tensor-output ./my_tensors
+    --tensor-output ./my_tensors \
+    --normalize peak
 ```
 With a metadata JSON for lyrics/genre/BPM:
 ```bash
@@ -270,10 +327,11 @@ uv run train.py fixed \
     --preprocess \
     --audio-dir ./my_audio \
     --dataset-json ./my_dataset.json \
-    --tensor-output ./my_tensors
+    --tensor-output ./my_tensors \
+    --normalize lufs
 ```
 
-### Option D: Gradient Estimation
+### Option E: Gradient Estimation
 Find which attention modules learn fastest for your dataset (useful for rank/target selection):
 ```bash
 uv run train.py estimate \
@@ -284,7 +342,7 @@ uv run train.py estimate \
     --top-k 16
 ```
 
-### Option E: Convert LoRA for ComfyUI
+### Option F: Convert LoRA for ComfyUI
 PEFT saves adapter keys with a prefix that ComfyUI doesn't recognize. Convert to diffusers format:
 ```bash
 uv run train.py convert --adapter-dir ./output/my_lora/final
@@ -342,18 +400,22 @@ Side-Step/                       <-- Standalone project root
 ├── requirements-sidestep.txt    <-- Fallback for plain pip
 ├── install_windows.bat          <-- Windows easy installer (double-click)
 ├── install_windows.ps1          <-- PowerShell installer script
+├── tests/                       <-- Unit tests (run with python -m unittest discover -s tests)
 └── acestep/
     └── training_v2/             <-- Side-Step logic (all standalone)
         ├── trainer_fixed.py     <-- The corrected training loop
         ├── export_utils.py      <-- ComfyUI LoRA converter (PEFT -> diffusers)
         ├── preprocess.py        <-- Two-pass preprocessing pipeline
+        ├── audio_duration.py    <-- Audio duration auto-detection
+        ├── audio_normalize.py   <-- Peak and LUFS normalization
+        ├── dataset_builder.py   <-- Folder-based dataset.json generator
         ├── estimate.py          <-- Gradient sensitivity estimation
         ├── model_loader.py      <-- Per-component model loading (supports fine-tunes)
         ├── model_discovery.py   <-- Checkpoint scanning & fuzzy search
         ├── settings.py          <-- Persistent user settings (~/.config/sidestep/)
         ├── _compat.py           <-- Version pin & compatibility check
         ├── optim.py             <-- 8-bit and adaptive optimizers
-        ├── _vendor/             <-- Vendored ACE-Step utilities (standalone)
+        ├── _vendor/             <-- Vendored ACE-Step utilities (latent chunking)
         ├── presets/             <-- Built-in preset JSON files
         ├── cli/                 <-- CLI argument parsing & dispatch
         └── ui/                  <-- Wizard, flows, setup, presets, visual logic
@@ -411,7 +473,9 @@ Available in: vanilla, fixed
 | `--alpha` | `128` | LoRA scaling factor. Controls how strongly the adapter affects the model. Usually 2x the rank. Recommended: 128 |
 | `--dropout` | `0.1` | Dropout probability on LoRA layers. Helps prevent overfitting. Range: 0.0 to 0.5 |
 | `--attention-type` | `both` | Which attention layers to target. Options: `both` (self + cross attention, 192 modules), `self` (self-attention only, audio patterns, 96 modules), `cross` (cross-attention only, text conditioning, 96 modules) |
-| `--target-modules` | `q_proj k_proj v_proj o_proj` | Which projection layers get adapters. Space-separated list. Combined with `--attention-type` to determine final target modules |
+| `--target-modules` | `q_proj k_proj v_proj o_proj` | Which projection layers get adapters. Space-separated list. Combined with `--attention-type` to determine final target modules. Used as fallback when per-type flags are not set |
+| `--self-target-modules` | *(none)* | Projections for self-attention only. Space-separated. Used with `--attention-type both` to configure self-attention independently |
+| `--cross-target-modules` | *(none)* | Projections for cross-attention only. Space-separated. Used with `--attention-type both` to configure cross-attention independently |
 | `--bias` | `none` | Whether to train bias parameters. Options: `none` (no bias training), `all` (train all biases), `lora_only` (only biases in LoRA layers) |
 
 ### LoKR Settings (used when --adapter-type=lokr) -- Experimental
@@ -448,6 +512,7 @@ Available in: vanilla, fixed
 | `--scheduler-type` | `cosine` | LR schedule: `cosine`, `cosine_restarts`, `linear`, `constant`, `constant_with_warmup`. Prodigy auto-forces `constant` |
 | `--gradient-checkpointing` | `True` | Recompute activations during backward to save VRAM (~40-60% less activation memory, ~10-30% slower). On by default; use `--no-gradient-checkpointing` to disable |
 | `--offload-encoder` | `False` | Move encoder/VAE to CPU after setup. Frees ~2-4GB VRAM with minimal speed impact |
+| `--chunk-duration` | *(disabled)* | Slice preprocessed latent tensors into random windows of N seconds each iteration. Provides data augmentation (different chunks every epoch) and reduces VRAM for long songs. Recommended: `60`. **Chunks below 60s can hurt training quality** |
 
 ### Corrected Training (fixed mode only)
 
@@ -503,7 +568,20 @@ Available in: vanilla, fixed
 | `--audio-dir` | *(none)* | Source directory containing audio files (for preprocessing) |
 | `--dataset-json` | *(none)* | Path to labeled dataset JSON file (for preprocessing) |
 | `--tensor-output` | *(none)* | Output directory where preprocessed .pt tensor files will be saved |
-| `--max-duration` | `240` | Maximum audio duration in seconds. Longer files are truncated |
+| `--max-duration` | `0` (auto) | Maximum audio duration in seconds. `0` = auto-detect from longest file. Longer files are truncated |
+| `--normalize` | `none` | Audio normalization before VAE encoding: `none`, `peak` (-1.0 dBFS), or `lufs` (-14 LUFS). Peak matches ACE-Step output; LUFS is perceptually uniform |
+
+### Build Dataset
+
+Available in: `build-dataset` subcommand
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input` | **(required)** | Directory containing audio files and sidecar `.txt` metadata. Scanned recursively |
+| `--tag` | *(empty)* | Custom trigger tag applied to all samples' captions |
+| `--tag-position` | `prepend` | Where to place the tag: `prepend`, `append`, or `replace` |
+| `--name` | `local_dataset` | Dataset name stored in the JSON metadata block |
+| `--output` | `<input>/dataset.json` | Output path for the generated dataset JSON |
 
 ---
 

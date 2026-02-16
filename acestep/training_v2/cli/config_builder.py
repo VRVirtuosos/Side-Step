@@ -95,7 +95,12 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
 
     # -- Adapter config (LoRA or LoKR) --------------------------------------
     attention_type = getattr(args, "attention_type", "both")
-    resolved_modules = resolve_target_modules(args.target_modules, attention_type)
+    resolved_modules = resolve_target_modules(
+        args.target_modules,
+        attention_type,
+        self_target_modules=getattr(args, "self_target_modules", None),
+        cross_target_modules=getattr(args, "cross_target_modules", None),
+    )
 
     adapter_cfg: AdapterConfig
     if adapter_type == "lokr":
@@ -195,6 +200,8 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         dataset_json=args.dataset_json,
         tensor_output=args.tensor_output,
         max_duration=args.max_duration,
+        normalize=getattr(args, "normalize", "none"),
+        chunk_duration=getattr(args, "chunk_duration", None),
     )
 
     return adapter_cfg, train_cfg

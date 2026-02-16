@@ -236,8 +236,17 @@ class TrainingConfigV2(TrainingConfig):
     tensor_output: Optional[str] = None
     """Output directory for preprocessed .pt tensor files."""
 
-    max_duration: float = 240.0
-    """Maximum audio duration in seconds (preprocessing)."""
+    max_duration: float = 0
+    """Maximum audio duration in seconds (0 = auto-detect, preprocessing)."""
+
+    normalize: str = "none"
+    """Audio normalization: 'none', 'peak' (-1.0 dBFS), 'lufs' (-14 LUFS)."""
+
+    chunk_duration: Optional[int] = None
+    """Random latent chunking: extract a random window of this many seconds
+    from each sample during training.  ``None`` = disabled, ``60`` = recommended.
+    Values below 60 (e.g. 30) may reduce training quality for full-length
+    inference."""
 
     # -----------------------------------------------------------------------
     # Helpers
@@ -294,6 +303,8 @@ class TrainingConfigV2(TrainingConfig):
                 "dataset_json": self.dataset_json,
                 "tensor_output": self.tensor_output,
                 "max_duration": self.max_duration,
+                "normalize": self.normalize,
+                "chunk_duration": self.chunk_duration,
             }
         )
         return base

@@ -65,19 +65,44 @@ def validate_paths(args: argparse.Namespace) -> bool:
     return True
 
 
-def resolve_target_modules(target_modules: list, attention_type: str) -> list:
+def _prefix_modules(modules: list, prefix: str) -> list:
+    """Add *prefix* to each module name that is not already fully qualified."""
+    return [m if "." in m else f"{prefix}.{m}" for m in modules]
+
+
+def resolve_target_modules(
+    target_modules: list,
+    attention_type: str,
+    *,
+    self_target_modules: list | None = None,
+    cross_target_modules: list | None = None,
+) -> list:
     """Resolve target modules based on attention type selection.
 
     Args:
-        target_modules: List of module patterns (e.g. ["q_proj", "v_proj"])
-        attention_type: One of "self", "cross", or "both"
+        target_modules: Fallback list of module patterns (e.g. ["q_proj"]).
+        attention_type: One of "self", "cross", or "both".
+        self_target_modules: Per-type projections for self-attention
+            (only used when *attention_type* is "both").
+        cross_target_modules: Per-type projections for cross-attention
+            (only used when *attention_type* is "both").
 
     Returns:
         Resolved list of module patterns with appropriate prefixes.
 
+    When *attention_type* is "both" and per-type lists are provided, each
+    set is prefixed independently and merged.  If neither per-type list
+    is provided, *target_modules* is returned unchanged (PEFT matches all
+    occurrences).
+
     Examples:
         resolve_target_modules(["q_proj", "v_proj"], "both")
         -> ["q_proj", "v_proj"]  # unchanged, PEFT matches all
+
+        resolve_target_modules(["q_proj"], "both",
+            self_target_modules=["q_proj", "v_proj"],
+            cross_target_modules=["q_proj"])
+        -> ["self_attn.q_proj", "self_attn.v_proj", "cross_attn.q_proj"]
 
         resolve_target_modules(["q_proj", "v_proj"], "self")
         -> ["self_attn.q_proj", "self_attn.v_proj"]
@@ -86,6 +111,10 @@ def resolve_target_modules(target_modules: list, attention_type: str) -> list:
         -> ["cross_attn.q_proj", "cross_attn.v_proj"]
     """
     if attention_type == "both":
+        if self_target_modules is not None or cross_target_modules is not None:
+            s_mods = self_target_modules if self_target_modules is not None else target_modules
+            c_mods = cross_target_modules if cross_target_modules is not None else target_modules
+            return _prefix_modules(s_mods, "self_attn") + _prefix_modules(c_mods, "cross_attn")
         return target_modules
 
     prefix_map = {
@@ -96,11 +125,4 @@ def resolve_target_modules(target_modules: list, attention_type: str) -> list:
     if prefix is None:
         return target_modules
 
-    resolved = []
-    for mod in target_modules:
-        if "." in mod:
-            resolved.append(mod)
-        else:
-            resolved.append(f"{prefix}.{mod}")
-
-    return resolved
+    return _prefix_modules(target_modules, prefix)

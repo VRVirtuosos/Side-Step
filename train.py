@@ -58,7 +58,7 @@ def _has_subcommand() -> bool:
     args = sys.argv[1:]
     if "--help" in args or "-h" in args:
         return True  # let argparse handle help
-    known = {"vanilla", "fixed", "selective", "estimate", "compare-configs", "convert"}
+    known = {"vanilla", "fixed", "selective", "estimate", "compare-configs", "convert", "build-dataset"}
     return bool(known & set(args))
 
 
@@ -86,11 +86,13 @@ def _dispatch(args) -> int:
 
     sub = args.subcommand
 
-    # compare-configs and convert have their own validation
+    # Subcommands with their own validation (no path check needed)
     if sub == "compare-configs":
         return _run_compare_configs(args)
     if sub == "convert":
         return _run_convert(args)
+    if sub == "build-dataset":
+        return _run_build_dataset(args)
 
     # All other subcommands need path validation
     if not validate_paths(args):
@@ -194,7 +196,10 @@ def _run_preprocess(args) -> int:
     print(f"  Output:        {tensor_output}")
     print(f"  Checkpoint:    {args.checkpoint_dir}")
     print(f"  Model variant: {args.model_variant}")
-    print(f"  Max duration:  {getattr(args, 'max_duration', 240.0)}s")
+    _md = getattr(args, "max_duration", 0)
+    _norm = getattr(args, "normalize", "none")
+    print(f"  Max duration:  {'auto-detect' if _md <= 0 else f'{_md}s'}")
+    print(f"  Normalize:     {_norm}")
     print("=" * 60)
     print("[INFO] Two-pass pipeline (sequential model loading for low VRAM)")
 
@@ -204,10 +209,11 @@ def _run_preprocess(args) -> int:
             output_dir=tensor_output,
             checkpoint_dir=args.checkpoint_dir,
             variant=args.model_variant,
-            max_duration=getattr(args, "max_duration", 240.0),
+            max_duration=getattr(args, "max_duration", 0),
             dataset_json=dataset_json,
             device=getattr(args, "device", "auto"),
             precision=getattr(args, "precision", "auto"),
+            normalize=getattr(args, "normalize", "none"),
         )
     except Exception as exc:
         print(f"[FAIL] Preprocessing failed: {exc}", file=sys.stderr)
@@ -331,6 +337,50 @@ def _run_convert(args) -> int:
 
     print(f"\n[OK] ComfyUI-compatible LoRA saved to: {out_path}")
     print("[INFO] Load this file in ComfyUI's LoRA loader node.")
+    return 0
+
+
+def _run_build_dataset(args) -> int:
+    """Build a dataset.json from a folder of audio + sidecar metadata."""
+    from acestep.training_v2.dataset_builder import build_dataset
+
+    input_dir = args.input
+    tag = getattr(args, "tag", "")
+    tag_position = getattr(args, "tag_position", "prepend")
+    name = getattr(args, "name", "local_dataset")
+    output = getattr(args, "output", None)
+
+    print("\n" + "=" * 60)
+    print("  Build Dataset")
+    print("=" * 60)
+    print(f"  Input:         {input_dir}")
+    print(f"  Tag:           {tag or '(none)'}")
+    print(f"  Tag position:  {tag_position}")
+    print(f"  Dataset name:  {name}")
+    print(f"  Output:        {output or '<input>/dataset.json'}")
+    print("=" * 60)
+
+    try:
+        out_path, stats = build_dataset(
+            input_dir=input_dir,
+            tag=tag,
+            tag_position=tag_position,
+            name=name,
+            output=output,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        print(f"[FAIL] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[FAIL] Dataset build failed: {exc}", file=sys.stderr)
+        logger.exception("Dataset build error")
+        return 1
+
+    print(f"\n[OK] Dataset built: {stats['total']} samples")
+    print(f"     With metadata: {stats['with_metadata']}")
+    print(f"     Output:        {out_path}")
+    print(f"\n[INFO] You can now preprocess with:")
+    print(f"       python train.py fixed --preprocess --dataset-json {out_path} ...")
     return 0
 
 

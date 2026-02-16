@@ -40,15 +40,30 @@ class PreprocessedTensorDataset(Dataset):
     - attention_mask: Audio latent mask [T]
 
     No VAE/text encoder needed during training - just load tensors directly!
+
+    When ``chunk_duration`` is set (seconds), each ``__getitem__`` call
+    extracts a random window of that length from the T-aligned tensors.
+    A different random offset is chosen every call, so each epoch sees
+    different slices -- this acts as data augmentation and reduces VRAM.
     """
 
-    def __init__(self, tensor_dir: str):
+    # ACE-Step DCAE latent rate (frames per second).  Used as a fallback
+    # when per-sample duration metadata is unavailable.
+    _LATENT_FPS_FALLBACK = 25
+
+    def __init__(self, tensor_dir: str, chunk_duration: Optional[int] = None):
         """Initialize from a directory of preprocessed .pt files.
 
         Args:
             tensor_dir: Directory containing preprocessed .pt files and manifest.json
+            chunk_duration: Optional random chunk length in seconds.
+                ``None`` = disabled (use full sample).
+                ``60``  = recommended default.
+                Values below 60 (e.g. 30) may reduce training quality for
+                full-length inference -- use with caution.
         """
         self.tensor_dir = tensor_dir
+        self.chunk_duration = chunk_duration
         self.sample_paths = []
 
         # Load manifest if exists
@@ -69,22 +84,62 @@ class PreprocessedTensorDataset(Dataset):
         if len(self.valid_paths) != len(self.sample_paths):
             logger.warning(f"Some tensor files not found: {len(self.sample_paths) - len(self.valid_paths)} missing")
 
-        logger.info(f"PreprocessedTensorDataset: {len(self.valid_paths)} samples from {tensor_dir}")
+        # Auto-detect latent FPS from first sample when chunking is enabled
+        self._latent_fps: float = self._LATENT_FPS_FALLBACK
+        if self.chunk_duration is not None and self.valid_paths:
+            self._latent_fps = self._detect_latent_fps()
+
+        chunk_info = ""
+        if self.chunk_duration is not None:
+            chunk_frames = int(self.chunk_duration * self._latent_fps)
+            chunk_info = f", chunk={self.chunk_duration}s (~{chunk_frames} frames)"
+        logger.info(f"PreprocessedTensorDataset: {len(self.valid_paths)} samples from {tensor_dir}{chunk_info}")
+
+    def _detect_latent_fps(self) -> float:
+        """Probe the first sample to compute latent frames-per-second."""
+        try:
+            data = torch.load(self.valid_paths[0], map_location='cpu', weights_only=True)
+            T = data["target_latents"].shape[0]
+            meta = data.get("metadata", {})
+            duration = meta.get("duration", 0)
+            if isinstance(duration, (int, float)) and duration > 0:
+                fps = T / duration
+                logger.info(f"Auto-detected latent FPS: {fps:.1f} (from {T} frames / {duration}s)")
+                return fps
+        except Exception as exc:
+            logger.debug(f"Could not auto-detect latent FPS: {exc}")
+        logger.info(f"Using fallback latent FPS: {self._LATENT_FPS_FALLBACK}")
+        return float(self._LATENT_FPS_FALLBACK)
 
     def __len__(self) -> int:
         return len(self.valid_paths)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        """Load a preprocessed tensor file."""
+        """Load a preprocessed tensor file, optionally chunked."""
         tensor_path = self.valid_paths[idx]
         data = torch.load(tensor_path, map_location='cpu', weights_only=True)
 
+        target_latents = data["target_latents"]      # [T, 64]
+        attention_mask = data["attention_mask"]        # [T]
+        context_latents = data["context_latents"]      # [T, 65]
+
+        # Random chunking: slice a window from T-aligned tensors
+        if self.chunk_duration is not None:
+            T = target_latents.shape[0]
+            chunk_frames = int(self.chunk_duration * self._latent_fps)
+            if chunk_frames > 0 and T > chunk_frames:
+                start = torch.randint(0, T - chunk_frames, (1,)).item()
+                end = start + chunk_frames
+                target_latents = target_latents[start:end]
+                attention_mask = attention_mask[start:end]
+                context_latents = context_latents[start:end]
+
         return {
-            "target_latents": data["target_latents"],  # [T, 64]
-            "attention_mask": data["attention_mask"],  # [T]
+            "target_latents": target_latents,           # [T', 64]
+            "attention_mask": attention_mask,             # [T']
             "encoder_hidden_states": data["encoder_hidden_states"],  # [L, D]
             "encoder_attention_mask": data["encoder_attention_mask"],  # [L]
-            "context_latents": data["context_latents"],  # [T, 65]
+            "context_latents": context_latents,          # [T', 65]
             "metadata": data.get("metadata", {}),
         }
 
@@ -168,6 +223,7 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
         persistent_workers: bool = True,
         pin_memory_device: str = "",
         val_split: float = 0.0,
+        chunk_duration: Optional[int] = None,
     ):
         """Initialize the data module.
 
@@ -177,6 +233,7 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
             num_workers: Number of data loading workers
             pin_memory: Whether to pin memory for faster GPU transfer
             val_split: Fraction of data for validation (0 = no validation)
+            chunk_duration: Random chunk length in seconds (None = disabled)
         """
         if LIGHTNING_AVAILABLE:
             super().__init__()
@@ -189,6 +246,7 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
         self.persistent_workers = persistent_workers
         self.pin_memory_device = pin_memory_device
         self.val_split = val_split
+        self.chunk_duration = chunk_duration
 
         self.train_dataset = None
         self.val_dataset = None
@@ -196,7 +254,9 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
     def setup(self, stage: Optional[str] = None):
         """Setup datasets."""
         if stage == 'fit' or stage is None:
-            full_dataset = PreprocessedTensorDataset(self.tensor_dir)
+            full_dataset = PreprocessedTensorDataset(
+                self.tensor_dir, chunk_duration=self.chunk_duration,
+            )
 
             if self.val_split > 0 and len(full_dataset) > 1:
                 n_val = max(1, int(len(full_dataset) * self.val_split))

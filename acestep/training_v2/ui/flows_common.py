@@ -12,6 +12,39 @@ import argparse
 from acestep.training_v2.ui.prompt_helpers import DEFAULT_NUM_WORKERS
 
 
+_DEFAULT_PROJECTIONS = "q_proj k_proj v_proj o_proj"
+
+
+def _resolve_wizard_projections(a: dict) -> list:
+    """Build the ``target_modules`` list from wizard answers.
+
+    When ``attention_type == "both"`` and the wizard collected separate
+    self/cross projection strings, each set is prefixed with its attention
+    path (``self_attn.`` / ``cross_attn.``) and the two are merged into
+    one list.  Modules that already contain a ``.`` are passed through
+    unchanged (assumed fully qualified).
+
+    When a single ``target_modules_str`` is present (the "self" or "cross"
+    path, or backward-compatible answers), it is split and returned as-is;
+    the downstream ``resolve_target_modules`` call in ``config_builder``
+    will add the appropriate prefix.
+    """
+    attention_type = a.get("attention_type", "both")
+    has_split = "self_target_modules_str" in a or "cross_target_modules_str" in a
+
+    if attention_type == "both" and has_split:
+        self_mods = a.get("self_target_modules_str", _DEFAULT_PROJECTIONS).split()
+        cross_mods = a.get("cross_target_modules_str", _DEFAULT_PROJECTIONS).split()
+        resolved = []
+        for m in self_mods:
+            resolved.append(m if "." in m else f"self_attn.{m}")
+        for m in cross_mods:
+            resolved.append(m if "." in m else f"cross_attn.{m}")
+        return resolved
+
+    return a.get("target_modules_str", _DEFAULT_PROJECTIONS).split()
+
+
 def build_train_namespace(a: dict, mode: str = "fixed") -> argparse.Namespace:
     """Convert a wizard answers dict into an argparse.Namespace for dispatch.
 
@@ -23,7 +56,7 @@ def build_train_namespace(a: dict, mode: str = "fixed") -> argparse.Namespace:
     Returns:
         A fully populated ``argparse.Namespace``.
     """
-    target_modules = a.get("target_modules_str", "q_proj k_proj v_proj o_proj").split()
+    target_modules = _resolve_wizard_projections(a)
     nw = a.get("num_workers", DEFAULT_NUM_WORKERS)
     return argparse.Namespace(
         subcommand="fixed",
@@ -79,11 +112,13 @@ def build_train_namespace(a: dict, mode: str = "fixed") -> argparse.Namespace:
         scheduler_type=a.get("scheduler_type", "cosine"),
         gradient_checkpointing=a.get("gradient_checkpointing", True),
         offload_encoder=a.get("offload_encoder", False),
+        chunk_duration=a.get("chunk_duration"),
         preprocess=False,
         audio_dir=None,
         dataset_json=None,
         tensor_output=None,
-        max_duration=240.0,
+        max_duration=0,
+        normalize="none",
         cfg_ratio=a.get("cfg_ratio", 0.15),
         loss_weighting=a.get("loss_weighting", "none"),
         snr_gamma=a.get("snr_gamma", 5.0),

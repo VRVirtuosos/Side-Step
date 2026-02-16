@@ -17,6 +17,7 @@ from acestep.training_v2.ui.prompt_helpers import (
     _esc,
     ask,
     ask_path,
+    menu,
     native_path,
     section,
     step_indicator,
@@ -173,17 +174,90 @@ def _print_not_found(path: str) -> None:
 
 
 def _step_output(a: dict) -> None:
-    """Output directory and max duration."""
+    """Output directory for tensor files."""
     a["tensor_output"] = ask(
         "Output directory for .pt tensor files",
         default=a.get("tensor_output"),
         required=True, allow_back=True,
     )
-    a["max_duration"] = ask(
-        "Max audio duration in seconds",
-        default=a.get("max_duration", 240.0),
-        type_fn=float, allow_back=True,
+
+
+def _step_normalize(a: dict) -> None:
+    """Audio normalization before VAE encoding."""
+    from acestep.training_v2.ui.prompt_helpers import ask_bool
+
+    if is_rich_active() and console is not None:
+        console.print(
+            "\n  [dim]Normalization ensures consistent loudness across training audio.\n"
+            "  Peak normalizes to -1.0 dBFS (matches ACE-Step output).\n"
+            "  LUFS normalizes to -14 LUFS (broadcast standard, requires pyloudnorm).\n"
+            "  If unsure, 'peak' is a safe default.[/]"
+        )
+    else:
+        print(
+            "\n  Normalization ensures consistent loudness across training audio.\n"
+            "  Peak normalizes to -1.0 dBFS (matches ACE-Step output).\n"
+            "  LUFS normalizes to -14 LUFS (broadcast standard, requires pyloudnorm).\n"
+            "  If unsure, 'peak' is a safe default."
+        )
+
+    if ask_bool("Normalize audio before encoding?", default=True, allow_back=True):
+        a["normalize"] = menu(
+            "Normalization method",
+            [
+                ("peak", "Peak (-1.0 dBFS, no extra deps, matches ACE-Step)"),
+                ("lufs", "LUFS (-14 LUFS, perceptually uniform, needs pyloudnorm)"),
+            ],
+            default=1,
+            allow_back=True,
+        )
+    else:
+        a["normalize"] = "none"
+
+
+def _step_scan_durations(a: dict) -> None:
+    """Scan audio files and show per-song duration feedback."""
+    from acestep.training_v2.audio_duration import get_audio_duration, detect_max_duration
+    from acestep.training_v2.preprocess_discovery import discover_audio_files
+
+    section("Audio Duration Scan")
+
+    audio_files = discover_audio_files(
+        a.get("audio_dir"), a.get("dataset_json"),
     )
+
+    if not audio_files:
+        if is_rich_active() and console is not None:
+            console.print("  [yellow]No audio files found to scan.[/]")
+        else:
+            print("  No audio files found to scan.")
+        a["max_duration"] = 0
+        return
+
+    # Show per-song durations
+    durations = {}
+    for af in audio_files:
+        dur = get_audio_duration(str(af))
+        durations[af.name] = dur
+
+    if is_rich_active() and console is not None:
+        console.print(f"  [bold]Found {len(audio_files)} audio files:[/]\n")
+        for name, dur in sorted(durations.items()):
+            m, s = divmod(dur, 60)
+            console.print(f"    {name:<40s}  {m}m {s:02d}s  ({dur}s)")
+        longest = max(durations.values()) if durations else 0
+        console.print(f"\n  [bold green]Longest clip: {longest}s[/]")
+        console.print("  [dim]Max duration will be set automatically to match.[/]")
+    else:
+        print(f"  Found {len(audio_files)} audio files:\n")
+        for name, dur in sorted(durations.items()):
+            m, s = divmod(dur, 60)
+            print(f"    {name:<40s}  {m}m {s:02d}s  ({dur}s)")
+        longest = max(durations.values()) if durations else 0
+        print(f"\n  Longest clip: {longest}s")
+        print("  Max duration will be set automatically to match.")
+
+    a["max_duration"] = 0  # signal auto-detect to the preprocess pipeline
 
 
 # ---- Step list and runner ---------------------------------------------------
@@ -192,6 +266,8 @@ _STEPS: list[tuple[str, Callable[..., Any]]] = [
     ("Model & Checkpoint", _step_model),
     ("Audio Source", _step_source),
     ("Output Settings", _step_output),
+    ("Audio Normalization", _step_normalize),
+    ("Duration Scan", _step_scan_durations),
 ]
 
 
@@ -264,8 +340,11 @@ def wizard_preprocess() -> argparse.Namespace:
         audio_dir=answers.get("audio_dir"),
         dataset_json=answers.get("dataset_json"),
         tensor_output=answers.get("tensor_output"),
-        max_duration=answers.get("max_duration", 240.0),
+        max_duration=answers.get("max_duration", 0),
+        normalize=answers.get("normalize", "none"),
         cfg_ratio=0.15,
+        loss_weighting="none",
+        snr_gamma=5.0,
         estimate_batches=None,
         top_k=16,
         granularity="module",

@@ -131,6 +131,44 @@ def build_root_parser() -> argparse.ArgumentParser:
         help="Paths to module config JSON files to compare",
     )
 
+    # -- build-dataset -------------------------------------------------------
+    p_build = subparsers.add_parser(
+        "build-dataset",
+        help="Build dataset.json from a folder of audio + sidecar metadata files",
+        formatter_class=formatter_class,
+    )
+    p_build.add_argument(
+        "--input", "-i",
+        type=str,
+        required=True,
+        help="Root directory containing audio files (scanned recursively)",
+    )
+    p_build.add_argument(
+        "--tag",
+        type=str,
+        default="",
+        help="Custom trigger tag applied to all samples (default: none)",
+    )
+    p_build.add_argument(
+        "--tag-position",
+        type=str,
+        default="prepend",
+        choices=["prepend", "append", "replace"],
+        help="Tag placement in prompts (default: prepend)",
+    )
+    p_build.add_argument(
+        "--name",
+        type=str,
+        default="local_dataset",
+        help="Dataset name in metadata block (default: local_dataset)",
+    )
+    p_build.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output JSON path (default: <input>/dataset.json)",
+    )
+
     # -- convert (PEFT -> diffusers for ComfyUI) -----------------------------
     p_convert = subparsers.add_parser(
         "convert",
@@ -254,6 +292,11 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_train.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay (default: 0.01)")
     g_train.add_argument("--max-grad-norm", type=float, default=1.0, help="Gradient clipping norm (default: 1.0)")
     g_train.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    g_train.add_argument("--chunk-duration", type=int, default=None,
+                         help="Random latent chunk duration in seconds (default: disabled). "
+                              "Recommended: 60. Extracts a random window each iteration for data "
+                              "augmentation and VRAM savings. WARNING: values below 60s (e.g. 30) "
+                              "may reduce training quality for full-length inference")
     g_train.add_argument("--shift", type=float, default=3.0, help="Noise schedule shift (turbo=3.0, base/sft=1.0)")
     g_train.add_argument("--num-inference-steps", type=int, default=8, help="Inference steps for timestep schedule (turbo=8, base/sft=50)")
     g_train.add_argument("--optimizer-type", type=str, default="adamw", choices=["adamw", "adamw8bit", "adafactor", "prodigy"], help="Optimizer (default: adamw)")
@@ -273,6 +316,8 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_lora.add_argument("--target-modules", nargs="+", default=["q_proj", "k_proj", "v_proj", "o_proj"], help="Modules to apply adapter to")
     g_lora.add_argument("--bias", type=str, default="none", choices=["none", "all", "lora_only"], help="Bias training mode (default: none)")
     g_lora.add_argument("--attention-type", type=str, default="both", choices=["self", "cross", "both"], help="Attention layers to target (default: both)")
+    g_lora.add_argument("--self-target-modules", nargs="+", default=None, help="Projections for self-attention only (used when --attention-type=both)")
+    g_lora.add_argument("--cross-target-modules", nargs="+", default=None, help="Projections for cross-attention only (used when --attention-type=both)")
 
     # -- LoKR hyperparams ---------------------------------------------------
     g_lokr = parser.add_argument_group("LoKR (used when --adapter-type=lokr)")
@@ -303,7 +348,9 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_pre.add_argument("--audio-dir", type=str, default=None, help="Source audio directory (preprocessing)")
     g_pre.add_argument("--dataset-json", type=str, default=None, help="Labeled dataset JSON file (preprocessing)")
     g_pre.add_argument("--tensor-output", type=str, default=None, help="Output directory for .pt tensor files (preprocessing)")
-    g_pre.add_argument("--max-duration", type=float, default=240.0, help="Max audio duration in seconds (default: 240)")
+    g_pre.add_argument("--max-duration", type=float, default=0, help="Max audio duration in seconds (0 = auto-detect from dataset, default: 0)")
+    g_pre.add_argument("--normalize", type=str, default="none", choices=["none", "peak", "lufs"],
+                        help="Audio normalization: none, peak (-1.0 dBFS), lufs (-14 LUFS). LUFS requires pyloudnorm (default: none)")
 
 
 def _add_fixed_args(parser: argparse.ArgumentParser) -> None:

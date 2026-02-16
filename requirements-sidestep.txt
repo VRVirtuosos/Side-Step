@@ -27,6 +27,9 @@ textual>=0.47.0
 # Uses LyCORIS library for adapter injection.
 # lycoris-lora>=2.0.0
 
+# ── LUFS audio normalization (used by preprocessing) ─────────
+pyloudnorm>=0.1.0
+
 # ── Optional: Flash Attention 2 (faster training on Ampere+) ─
 # Requires CUDA GPU with compute capability >= 8.0 (RTX 3090+).
 # Linux: builds from source (needs CUDA toolkit, ~10-20 min).

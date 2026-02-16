@@ -35,6 +35,8 @@ from acestep.training_v2.preprocess_vae import (
     TARGET_SR as _TARGET_SR,
     tiled_vae_encode as _tiled_vae_encode,
 )
+from acestep.training_v2.audio_duration import detect_max_duration as _detect_max_duration
+from acestep.training_v2.audio_normalize import normalize_audio as _normalize_audio
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +50,11 @@ def preprocess_audio_files(
     output_dir: str,
     checkpoint_dir: str,
     variant: str = "turbo",
-    max_duration: float = 240.0,
+    max_duration: float = 0,
     dataset_json: Optional[str] = None,
     device: str = "auto",
     precision: str = "auto",
+    normalize: str = "none",
     progress_callback: Optional[Callable] = None,
     cancel_check: Optional[Callable] = None,
 ) -> Dict[str, Any]:
@@ -74,11 +77,13 @@ def preprocess_audio_files(
         output_dir: Directory for output .pt files.
         checkpoint_dir: Path to ACE-Step model checkpoints.
         variant: Model variant (turbo, base, sft).
-        max_duration: Maximum audio duration in seconds.
+        max_duration: Maximum audio duration in seconds (0 = auto-detect).
         dataset_json: Optional JSON file with per-sample metadata and
             audio paths.
         device: Target device (``"auto"`` to auto-detect).
         precision: Target precision (``"auto"`` to auto-detect).
+        normalize: Audio normalization method (``"none"``, ``"peak"``,
+            or ``"lufs"``).
         progress_callback: ``(current, total, message) -> None``.
         cancel_check: ``() -> bool`` -- return True to cancel.
 
@@ -103,6 +108,14 @@ def preprocess_audio_files(
     total = len(audio_files)
     logger.info("[Side-Step] Found %d audio files to preprocess", total)
 
+    # -- Auto-detect max duration when requested (0 = auto) ------------------
+    if max_duration <= 0:
+        detected = _detect_max_duration(audio_files)
+        max_duration = float(detected) if detected > 0 else 240.0
+        logger.info(
+            "[Side-Step] Auto-detected max_duration: %ds", int(max_duration),
+        )
+
     # -- Load metadata -------------------------------------------------------
     sample_meta = _load_sample_metadata(dataset_json, audio_files)
     ds_meta = _load_dataset_metadata(dataset_json)
@@ -125,6 +138,7 @@ def preprocess_audio_files(
         device=dev,
         precision=prec,
         max_duration=max_duration,
+        normalize=normalize,
         progress_callback=progress_callback,
         cancel_check=cancel_check,
     )
@@ -169,14 +183,17 @@ def _pass1_light(
     device: str,
     precision: str,
     max_duration: float,
-    progress_callback: Optional[Callable],
-    cancel_check: Optional[Callable],
+    normalize: str = "none",
+    progress_callback: Optional[Callable] = None,
+    cancel_check: Optional[Callable] = None,
 ) -> tuple[List[Path], int]:
     """Load audio, VAE-encode, text-encode, save intermediates.
 
     Args:
         ds_meta: Dataset-level metadata (``tag_position``, ``genre_ratio``,
             ``custom_tag``) from the JSON's top-level ``metadata`` block.
+        normalize: Audio normalization method (``"none"``, ``"peak"``,
+            ``"lufs"``).
 
     Returns ``(list_of_intermediate_paths, fail_count)``.
     """
@@ -232,6 +249,11 @@ def _pass1_light(
             try:
                 # 1. Load audio (stereo, 48 kHz)
                 audio, _sr = load_audio_stereo(str(af), _TARGET_SR, max_duration)
+
+                # 1b. Optional normalization (CPU, before GPU transfer)
+                if normalize != "none":
+                    audio = _normalize_audio(audio, _TARGET_SR, method=normalize)
+
                 audio = audio.unsqueeze(0).to(device=device, dtype=vae.dtype)
 
                 # 2. VAE encode (tiled for long audio)

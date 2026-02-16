@@ -16,6 +16,7 @@ from typing import Generator, Optional
 from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import GoBack, ask, menu
 from acestep.training_v2.ui.flows import wizard_train, wizard_preprocess
+from acestep.training_v2.ui.flows_build_dataset import wizard_build_dataset
 from acestep.training_v2.ui.wizard_menus import experimental_menu, manage_presets_menu, _print_msg
 
 
@@ -110,6 +111,7 @@ def _main_menu() -> Optional[argparse.Namespace]:
             [
                 ("train_lora", "Train a LoRA (PEFT)"),
                 ("train_lokr", "Train a LoKR (LyCORIS)"),
+                ("build_dataset", "Build dataset from folder"),
                 ("preprocess", "Preprocess audio into tensors"),
                 ("convert_comfyui", "Convert LoRA for ComfyUI"),
                 ("presets", "Manage presets"),
@@ -134,6 +136,13 @@ def _main_menu() -> Optional[argparse.Namespace]:
         if action == "settings":
             _run_settings_editor()
             continue  # loop back to main menu
+
+        if action == "build_dataset":
+            try:
+                wizard_build_dataset()
+            except GoBack:
+                pass
+            continue  # loop back to main menu after build
 
         try:
             if action == "experimental":
