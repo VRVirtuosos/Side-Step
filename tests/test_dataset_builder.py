@@ -181,5 +181,58 @@ class TestBuildDataset(unittest.TestCase):
             self.assertEqual(data["samples"][0]["lyrics"], "[Instrumental]")
 
 
+class TestGenreRatio(unittest.TestCase):
+    """Verify genre_ratio is threaded through to the output JSON."""
+
+    def test_genre_ratio_written_to_metadata(self):
+        """genre_ratio=30 should appear in the metadata block."""
+        from acestep.training_v2.dataset_builder import build_dataset
+
+        with tempfile.TemporaryDirectory() as td:
+            audio = Path(td) / "track.wav"
+            audio.write_bytes(b"\x00" * 100)
+            Path(td, "track.txt").write_text("caption: A track\ngenre: Rock\n")
+
+            with patch("acestep.training_v2.dataset_builder.get_audio_duration", return_value=120):
+                out_path, _ = build_dataset(input_dir=td, genre_ratio=30)
+
+            data = json.loads(out_path.read_text())
+            self.assertEqual(data["metadata"]["genre_ratio"], 30)
+
+    def test_genre_ratio_defaults_to_zero(self):
+        """Omitting genre_ratio should write 0 (backward compat)."""
+        from acestep.training_v2.dataset_builder import build_dataset
+
+        with tempfile.TemporaryDirectory() as td:
+            audio = Path(td) / "song.wav"
+            audio.write_bytes(b"\x00" * 100)
+            Path(td, "song.txt").write_text("caption: A song\n")
+
+            with patch("acestep.training_v2.dataset_builder.get_audio_duration", return_value=60):
+                out_path, _ = build_dataset(input_dir=td)
+
+            data = json.loads(out_path.read_text())
+            self.assertEqual(data["metadata"]["genre_ratio"], 0)
+
+    def test_genre_ratio_does_not_affect_samples(self):
+        """genre_ratio is metadata-only; per-sample fields are unchanged."""
+        from acestep.training_v2.dataset_builder import build_dataset
+
+        with tempfile.TemporaryDirectory() as td:
+            audio = Path(td) / "beat.wav"
+            audio.write_bytes(b"\x00" * 100)
+            Path(td, "beat.txt").write_text("caption: My Beat\ngenre: Jazz\nbpm: 90\n")
+
+            with patch("acestep.training_v2.dataset_builder.get_audio_duration", return_value=180):
+                out_path, _ = build_dataset(input_dir=td, genre_ratio=50)
+
+            data = json.loads(out_path.read_text())
+            sample = data["samples"][0]
+            self.assertEqual(sample["caption"], "My Beat")
+            self.assertEqual(sample["genre"], "Jazz")
+            self.assertEqual(sample["bpm"], 90)
+            self.assertNotIn("genre_ratio", sample)
+
+
 if __name__ == "__main__":
     unittest.main()
