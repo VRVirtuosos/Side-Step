@@ -20,7 +20,7 @@ If you're training LoRAs for ACE-Step, Side-Step is built to get you from audio 
 
 ### As a trainer, you get:
 
-- **Just works for every model.** Pick turbo, base, or sft -- Side-Step auto-detects the variant and uses the right training recipe. No manual config, no wrong settings.
+- **Just works for every model.** Pick turbo, base, or sft -- Side-Step auto-detects the variant and uses the right recipe.
 - **Correct training out of the box.** The upstream trainer uses a discrete 8-step schedule hardcoded for turbo. That's wrong for base and sft models (they were trained with continuous logit-normal sampling + CFG dropout). Side-Step matches each model's actual training distribution automatically.
 - **Low VRAM, real hardware.** Trains on 8 GB GPUs. Gradient checkpointing, 8-bit optimizers, encoder offloading, and VRAM-tier presets are built in. No A100 required.
 - **Interactive wizard or CLI.** Step-by-step wizard with go-back, presets, and flow chaining. Or one-liner CLI for scripted pipelines and cloud runs.
