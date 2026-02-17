@@ -322,6 +322,12 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_ckpt.add_argument("--output-dir", type=str, required=True, help="Output directory for LoRA weights")
     g_ckpt.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs (default: 10)")
     g_ckpt.add_argument("--resume-from", type=str, default=None, help="Path to checkpoint dir to resume from")
+    g_ckpt.add_argument("--save-best", action=argparse.BooleanOptionalAction, default=True,
+                         help="Auto-save best model by smoothed loss (default: True)")
+    g_ckpt.add_argument("--save-best-after", type=int, default=200,
+                         help="Epoch to start best-model tracking (default: 200)")
+    g_ckpt.add_argument("--early-stop-patience", type=int, default=0,
+                         help="Stop if no improvement for N epochs; 0=disabled (default: 0)")
 
     # -- Logging / TensorBoard -----------------------------------------------
     g_log = parser.add_argument_group("Logging / TensorBoard")

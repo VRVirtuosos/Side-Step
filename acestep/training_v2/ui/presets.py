@@ -121,6 +121,7 @@ PRESET_FIELDS = frozenset([
     "shift", "num_inference_steps",
     "optimizer_type", "scheduler_type", "cfg_ratio", "loss_weighting", "snr_gamma",
     "save_every", "log_every", "log_heavy_every",
+    "save_best", "save_best_after", "early_stop_patience",
     "gradient_checkpointing", "offload_encoder",
     "sample_every_n_epochs",
 ])

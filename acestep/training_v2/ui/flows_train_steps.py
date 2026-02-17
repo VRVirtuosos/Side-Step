@@ -240,6 +240,13 @@ def step_logging(a: dict) -> None:
 
     section("Logging & Checkpoints (press Enter for defaults)")
     a["save_every"] = ask("Save checkpoint every N epochs", default=a.get("save_every", 10), type_fn=int, allow_back=True)
+    a["save_best"] = ask_bool("Auto-save best model (smoothed loss)", default=a.get("save_best", True), allow_back=True)
+    if a["save_best"]:
+        a["save_best_after"] = ask("Start best-model tracking after epoch", default=a.get("save_best_after", 200), type_fn=int, allow_back=True)
+        a["early_stop_patience"] = ask("Early stop patience (0=disabled)", default=a.get("early_stop_patience", 0), type_fn=int, allow_back=True)
+    else:
+        a["save_best_after"] = a.get("save_best_after", 200)
+        a["early_stop_patience"] = 0
     a["log_every"] = ask("Log metrics every N steps", default=a.get("log_every", 10), type_fn=int, allow_back=True)
     resume_raw = ask("Resume from checkpoint path (leave empty to skip)", default=a.get("resume_from"), allow_back=True)
     if resume_raw in (None, "None", ""):

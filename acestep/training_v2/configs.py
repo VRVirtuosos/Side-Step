@@ -198,6 +198,17 @@ class TrainingConfigV2(TrainingConfig):
     resume_from: Optional[str] = None
     """Path to checkpoint directory to resume training from."""
 
+    save_best: bool = True
+    """Auto-save the adapter with the lowest smoothed loss (MA5)."""
+
+    save_best_after: int = 200
+    """Epoch at which best-model tracking activates.  Earlier epochs are
+    ignored because loss is typically noisy during warmup."""
+
+    early_stop_patience: int = 0
+    """Stop training if smoothed loss doesn't improve for this many epochs
+    after best-model tracking is active.  0 = disabled."""
+
     # --- Extended TensorBoard logging ---------------------------------------
     log_dir: Optional[str] = None
     """TensorBoard log directory.  Defaults to {output_dir}/runs."""
