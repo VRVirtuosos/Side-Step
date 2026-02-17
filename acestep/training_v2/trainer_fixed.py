@@ -350,6 +350,15 @@ class FixedLoRATrainer:
         optimizer.zero_grad(set_to_none=True)
         self.module.model.decoder.train()
 
+        # Best-model tracking (MA5 smoothed loss)
+        best_loss = float('inf')
+        best_epoch = 0
+        patience_counter = 0
+        best_tracking_active = False
+        min_delta = 0.001
+        loss_window_size = 5
+        recent_losses: list = []
+
         for epoch in range(start_epoch, cfg.max_epochs):
             epoch_loss = 0.0
             num_updates = 0
@@ -442,13 +451,73 @@ class FixedLoRATrainer:
             epoch_time = time.time() - epoch_start
             avg_epoch_loss = epoch_loss / max(num_updates, 1)
             tb.log_epoch_loss(avg_epoch_loss, epoch + 1)
+
+            # -- Best-model tracking (MA5) ----------------------------------
+            # Activate tracking once we pass the warmup threshold
+            if (cfg.save_best and cfg.save_best_after > 0
+                    and (epoch + 1) >= cfg.save_best_after
+                    and not best_tracking_active):
+                best_tracking_active = True
+                best_loss = float('inf')
+                patience_counter = 0
+                recent_losses.clear()
+                yield TrainingUpdate(
+                    step=global_step, loss=avg_epoch_loss,
+                    msg=f"[INFO] Best-model tracking activated from epoch {epoch + 1}",
+                    kind="info", epoch=epoch + 1, max_epochs=cfg.max_epochs,
+                )
+
+            # Update rolling window
+            recent_losses.append(avg_epoch_loss)
+            if len(recent_losses) > loss_window_size:
+                recent_losses.pop(0)
+            smoothed_loss = sum(recent_losses) / len(recent_losses)
+
+            # Check for new best
+            is_new_best = best_tracking_active and smoothed_loss < best_loss - min_delta
+            if is_new_best:
+                best_loss = smoothed_loss
+                patience_counter = 0
+                best_epoch = epoch + 1
+            elif best_tracking_active:
+                patience_counter += 1
+
+            # Build epoch message with MA5 info
+            ma5_str = f", MA5: {smoothed_loss:.4f}" if len(recent_losses) >= 2 else ""
+            best_str = f" (best: {best_loss:.4f} @ ep{best_epoch})" if best_tracking_active else ""
+
             yield TrainingUpdate(
                 step=global_step, loss=avg_epoch_loss,
-                msg=f"[OK] Epoch {epoch + 1}/{cfg.max_epochs} in {epoch_time:.1f}s, Loss: {avg_epoch_loss:.4f}",
+                msg=f"[OK] Epoch {epoch + 1}/{cfg.max_epochs} in {epoch_time:.1f}s, Loss: {avg_epoch_loss:.4f}{ma5_str}{best_str}",
                 kind="epoch", epoch=epoch + 1, max_epochs=cfg.max_epochs, epoch_time=epoch_time,
             )
 
-            # Checkpoint
+            # Auto-save best model
+            if is_new_best:
+                best_path = str(output_dir / "best")
+                self._save_adapter_flat(best_path)
+                yield TrainingUpdate(
+                    step=global_step, loss=avg_epoch_loss,
+                    msg=f"[OK] Best model saved (epoch {epoch + 1}, MA5: {best_loss:.4f})",
+                    kind="checkpoint", epoch=epoch + 1, max_epochs=cfg.max_epochs,
+                    checkpoint_path=best_path,
+                )
+
+            # Early stopping
+            if (cfg.early_stop_patience > 0 and best_tracking_active
+                    and patience_counter >= cfg.early_stop_patience):
+                yield TrainingUpdate(
+                    step=global_step, loss=avg_epoch_loss,
+                    msg=(
+                        f"[INFO] Early stopping at epoch {epoch + 1} "
+                        f"(no improvement for {cfg.early_stop_patience} epochs, "
+                        f"best MA5={best_loss:.4f} at epoch {best_epoch})"
+                    ),
+                    kind="info", epoch=epoch + 1, max_epochs=cfg.max_epochs,
+                )
+                break
+
+            # Periodic checkpoint
             if (epoch + 1) % cfg.save_every_n_epochs == 0:
                 ckpt_dir = str(output_dir / "checkpoints" / f"epoch_{epoch + 1}")
                 self._save_checkpoint(optimizer, scheduler, epoch + 1, global_step, ckpt_dir)
@@ -482,17 +551,35 @@ class FixedLoRATrainer:
 
         # -- Final save -----------------------------------------------------
         final_path = str(output_dir / "final")
-        self._save_final(final_path)
+        best_path = str(output_dir / "best")
+        adapter_label = "LoKR" if self.adapter_type == "lokr" else "LoRA"
         final_loss = self.module.training_losses[-1] if self.module.training_losses else 0.0
 
-        adapter_label = "LoKR" if self.adapter_type == "lokr" else "LoRA"
-        tb.flush()
-        tb.close()
-        yield TrainingUpdate(
-            step=global_step, loss=final_loss,
-            msg=(
-                f"[OK] Training complete! {adapter_label} saved to {final_path}\n"
-                f"     For inference, set your LoRA path to: {final_path}"
-            ),
-            kind="complete",
-        )
+        if best_tracking_active and best_epoch > 0 and Path(best_path).exists():
+            import shutil
+            if Path(final_path).exists():
+                shutil.rmtree(final_path)
+            shutil.copytree(best_path, final_path)
+            tb.flush()
+            tb.close()
+            yield TrainingUpdate(
+                step=global_step, loss=final_loss,
+                msg=(
+                    f"[OK] Training complete! {adapter_label} final = best MA5 "
+                    f"(epoch {best_epoch}, MA5: {best_loss:.4f}) saved to {final_path}\n"
+                    f"     For inference, set your LoRA path to: {final_path}"
+                ),
+                kind="complete",
+            )
+        else:
+            self._save_final(final_path)
+            tb.flush()
+            tb.close()
+            yield TrainingUpdate(
+                step=global_step, loss=final_loss,
+                msg=(
+                    f"[OK] Training complete! {adapter_label} saved to {final_path}\n"
+                    f"     For inference, set your LoRA path to: {final_path}"
+                ),
+                kind="complete",
+            )

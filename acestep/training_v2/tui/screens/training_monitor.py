@@ -295,6 +295,9 @@ class TrainingMonitorScreen(Screen):
                     "gradient_checkpointing", True
                 ),
                 offload_encoder=self.config.get("offload_encoder", False),
+                save_best=self.config.get("save_best", True),
+                save_best_after=self.config.get("save_best_after", 200),
+                early_stop_patience=self.config.get("early_stop_patience", 0),
             )
 
             # ---- dispatch to the right trainer ----------------------------

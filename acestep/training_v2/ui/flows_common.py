@@ -110,6 +110,9 @@ def build_train_namespace(a: dict, mode: str = "fixed") -> argparse.Namespace:
         # Output / checkpoints
         output_dir=a["output_dir"],
         save_every=a.get("save_every", 10),
+        save_best=a.get("save_best", True),
+        save_best_after=a.get("save_best_after", 200),
+        early_stop_patience=a.get("early_stop_patience", 0),
         resume_from=a.get("resume_from"),
         log_dir=a.get("log_dir"),
         log_every=a.get("log_every", 10),
