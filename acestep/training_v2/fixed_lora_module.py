@@ -100,7 +100,10 @@ def _select_fabric_precision(device_type: str) -> str:
     if device_type in ("cuda", "xpu"):
         return "bf16-mixed"
     if device_type == "mps":
-        return "16-mixed"
+        # "16-mixed" activates a GradScaler whose _unscale_grads_ crashes on
+        # MPS tensors.  Use "32-true" instead -- the training step's own
+        # torch.autocast still provides fp16 forward-pass benefits.
+        return "32-true"
     return "32-true"
 
 
@@ -218,6 +221,9 @@ class FixedLoRAModule(nn.Module):
         # Backward-compat: property provides list-like [-1] access
         # for callers that read ``training_losses[-1]``.
         self.training_losses = _LastLossAccessor(self)
+
+        # One-shot flag: emit detailed NaN diagnostic only once per run
+        self._nan_diagnosed = False
 
     # -----------------------------------------------------------------------
     # Adapter injection helpers
@@ -379,11 +385,13 @@ class FixedLoRAModule(nn.Module):
                     decoder_outputs[0], flow, reduction="none",
                 )
                 per_sample_loss = per_sample_loss.mean(dim=(-1, -2))
-                t_safe = t.clamp(min=1e-4, max=1.0 - 1e-4)
-                snr = ((1.0 - t_safe) / t_safe) ** 2
+                # Upcast to fp32 to avoid overflow on fp16 devices (MPS):
+                # ((1-t)/t)^2 can reach ~1e8 which exceeds fp16 max (65504).
+                t_f32 = t.float().clamp(min=1e-4, max=1.0 - 1e-4)
+                snr = ((1.0 - t_f32) / t_f32) ** 2
                 snr = snr.clamp(max=1e6)
                 weights = torch.clamp(snr, max=self._snr_gamma) / snr.clamp(min=1e-6)
-                diffusion_loss = (weights * per_sample_loss).mean()
+                diffusion_loss = (weights.to(per_sample_loss.dtype) * per_sample_loss).mean()
             else:
                 diffusion_loss = F.mse_loss(decoder_outputs[0], flow)
 
@@ -394,6 +402,30 @@ class FixedLoRAModule(nn.Module):
             logger.warning(
                 "[WARN] NaN/Inf loss detected (step will be skipped by trainer)"
             )
+            if not self._nan_diagnosed:
+                self._nan_diagnosed = True
+                diag_parts = []
+                for _k in ("target_latents", "encoder_hidden_states",
+                           "context_latents"):
+                    _v = batch.get(_k)
+                    if _v is not None:
+                        has_nan = bool(torch.isnan(_v).any())
+                        has_inf = bool(torch.isinf(_v).any())
+                        if has_nan or has_inf:
+                            diag_parts.append(
+                                f"{_k}: nan={has_nan} inf={has_inf}"
+                            )
+                if diag_parts:
+                    logger.warning(
+                        "[DIAG] Corrupted input tensors: %s  "
+                        "(re-run preprocessing to fix)",
+                        ", ".join(diag_parts),
+                    )
+                else:
+                    logger.warning(
+                        "[DIAG] Input tensors are clean -- NaN likely "
+                        "from model forward pass (precision/overflow)"
+                    )
             return diffusion_loss
 
         self.training_losses.append(diffusion_loss.item())

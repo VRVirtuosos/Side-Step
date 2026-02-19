@@ -263,6 +263,16 @@ def _pass1_light(
                 # Free raw audio immediately -- no longer needed after VAE encode
                 del audio
 
+                # Validate VAE output before saving
+                if torch.isnan(target_latents).any() or torch.isinf(target_latents).any():
+                    failed += 1
+                    logger.warning(
+                        "[Side-Step] Pass 1 SKIP (NaN/Inf in VAE latents): %s",
+                        af.name,
+                    )
+                    del target_latents
+                    continue
+
                 latent_length = target_latents.shape[1]
                 attention_mask = torch.ones(1, latent_length, device=device, dtype=dtype)
 
@@ -278,6 +288,22 @@ def _pass1_light(
                 with torch.no_grad():
                     text_hs, text_mask = encode_text(text_enc, tokenizer, text_prompt, device, dtype)
                     lyric_hs, lyric_mask = encode_lyrics(text_enc, tokenizer, lyrics, device, dtype)
+
+                # Validate text encoder outputs
+                _bad_tensor = None
+                for _tname, _tens in [("text_hs", text_hs), ("lyric_hs", lyric_hs)]:
+                    if torch.isnan(_tens).any() or torch.isinf(_tens).any():
+                        _bad_tensor = _tname
+                        break
+                if _bad_tensor is not None:
+                    failed += 1
+                    logger.warning(
+                        "[Side-Step] Pass 1 SKIP (NaN/Inf in %s): %s",
+                        _bad_tensor, af.name,
+                    )
+                    del target_latents, attention_mask, text_hs, text_mask
+                    del lyric_hs, lyric_mask
+                    continue
 
                 # 4. Save intermediate
                 tmp_path = out_path / f"{af.stem}.tmp.pt"
@@ -414,6 +440,24 @@ def _pass2_heavy(
                     silence_latent, latent_length, str(model_device), model_dtype,
                 )
                 del silence_latent
+
+                # Validate DIT encoder / context outputs
+                _bad_tensor = None
+                for _tname, _tens in [
+                    ("encoder_hidden_states", encoder_hs),
+                    ("context_latents", context_latents),
+                ]:
+                    if torch.isnan(_tens).any() or torch.isinf(_tens).any():
+                        _bad_tensor = _tname
+                        break
+                if _bad_tensor is not None:
+                    failed += 1
+                    logger.warning(
+                        "[Side-Step] Pass 2 SKIP (NaN/Inf in %s): %s",
+                        _bad_tensor, tmp_path.stem,
+                    )
+                    del encoder_hs, encoder_mask, context_latents, data
+                    continue
 
                 # Write final .pt  (strip ".tmp" from "song.tmp.pt" -> "song.pt")
                 base_name = tmp_path.name.replace(".tmp.pt", ".pt")

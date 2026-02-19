@@ -418,6 +418,12 @@ class FixedLoRATrainer:
                         )
                         tb.close()
                         return
+                    # Discard any partially-accumulated gradients so the
+                    # next valid batch starts a fresh accumulation cycle.
+                    if accumulation_step > 0:
+                        optimizer.zero_grad(set_to_none=True)
+                        accumulated_loss = 0.0
+                        accumulation_step = 0
                     continue
                 consecutive_nan = 0
 

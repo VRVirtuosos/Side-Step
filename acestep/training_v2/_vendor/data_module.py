@@ -206,6 +206,19 @@ class PreprocessedTensorDataset(Dataset):
         metadata = data.get("metadata", {})
         del data
 
+        # Validate tensors for NaN/Inf (corrupted preprocessing output)
+        for _name, _tens in [
+            ("target_latents", target_latents),
+            ("encoder_hidden_states", encoder_hidden_states),
+            ("context_latents", context_latents),
+        ]:
+            if torch.isnan(_tens).any() or torch.isinf(_tens).any():
+                logger.warning(
+                    "[Side-Step] NaN/Inf in '%s' of %s -- replacing with zeros",
+                    _name, tensor_path,
+                )
+                _tens.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+
         # Random chunking: slice a window from T-aligned tensors
         if self.chunk_duration is not None:
             T = target_latents.shape[0]
