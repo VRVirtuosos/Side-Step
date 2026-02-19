@@ -158,6 +158,15 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
                 budget.get("max", 128),
             )
 
+            _PP_LR_WARN_THRESHOLD = 1e-4
+            if args.learning_rate > _PP_LR_WARN_THRESHOLD:
+                logger.warning(
+                    "[Side-Step] Preprocessing++ is active with lr=%.1e. "
+                    "Adaptive ranks concentrate capacity on fewer modules, "
+                    "which overfits faster. Consider lowering to ~5e-5.",
+                    args.learning_rate,
+                )
+
     # -- Clamp DataLoader flags when num_workers <= 0 -----------------------
     num_workers = args.num_workers
     prefetch_factor = args.prefetch_factor

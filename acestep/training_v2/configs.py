@@ -256,7 +256,7 @@ class TrainingConfigV2(TrainingConfig):
     convergence_patience: int = 5
     """Stop a Fisher run early when top-K ranking is stable for N batches."""
 
-    timestep_focus: str = "texture"
+    timestep_focus: str = "balanced"
     """Timestep focus for Fisher: 'texture', 'structure', 'balanced', or 'low,high'."""
 
     rank_min: int = 16

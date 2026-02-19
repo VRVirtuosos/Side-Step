@@ -20,7 +20,7 @@ def assign_ranks(
     base_rank: int = 64,
     rank_min: int = 16,
     rank_max: int = 128,
-    inclusion_percentile: float = 0.40,
+    inclusion_percentile: float = 0.55,
 ) -> Tuple[List[str], Dict[str, int], Dict[str, int]]:
     """Select modules and assign adaptive LoRA ranks.
 
@@ -31,7 +31,7 @@ def assign_ranks(
         rank_min: Floor for assigned ranks.
         rank_max: Ceiling for assigned ranks.
         inclusion_percentile: Top fraction of modules to include by
-            Fisher score (e.g. 0.40 = top 40%).
+            Fisher score (e.g. 0.55 = top 55%).
 
     Returns:
         ``(target_modules, rank_pattern, alpha_pattern)`` where
@@ -70,14 +70,61 @@ def assign_ranks(
     return target_modules, rank_pattern, alpha_pattern
 
 
+_CATEGORY_MARKERS = {
+    "cross_attn": ".cross_attn.",
+    "mlp": ".mlp.",
+}
+
+_MIN_CATEGORY_FRACTION = 0.10
+
+
+def _classify_module(name: str) -> str:
+    """Return the category of a module: 'cross_attn', 'mlp', or 'self_attn'."""
+    for cat, marker in _CATEGORY_MARKERS.items():
+        if marker in name:
+            return cat
+    return "self_attn"
+
+
 def _select_modules(
     fisher_scores: Dict[str, float],
     percentile: float,
 ) -> List[str]:
-    """Return module names in the top *percentile* by Fisher score."""
+    """Return module names in the top *percentile* by Fisher score.
+
+    Guarantees minimum representation per module category (self_attn,
+    cross_attn, mlp) so that no category is entirely excluded.  For each
+    category present in *fisher_scores*, at least 10% of that category's
+    modules (minimum 1) are included even if they fall below the global
+    percentile cutoff.
+    """
     ranked = sorted(fisher_scores, key=fisher_scores.get, reverse=True)  # type: ignore[arg-type]
     n = max(1, int(len(ranked) * percentile))
-    return ranked[:n]
+    selected = set(ranked[:n])
+
+    categories: Dict[str, List[str]] = {}
+    for name in ranked:
+        cat = _classify_module(name)
+        categories.setdefault(cat, []).append(name)
+
+    for cat, members in categories.items():
+        count_before = sum(1 for m in members if m in selected)
+        floor = max(1, int(len(members) * _MIN_CATEGORY_FRACTION))
+        if count_before >= floor:
+            continue
+        for m in members:
+            if m not in selected:
+                selected.add(m)
+                count_before += 1
+            if count_before >= floor:
+                break
+        logger.info(
+            "Category '%s' underrepresented; promoted to %d module(s) "
+            "(floor=%d, total_in_category=%d)",
+            cat, count_before, floor, len(members),
+        )
+
+    return [name for name in ranked if name in selected]
 
 
 def _to_peft_key(full_name: str) -> str:

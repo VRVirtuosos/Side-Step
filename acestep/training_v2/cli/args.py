@@ -381,8 +381,8 @@ def _add_fisher_args(parser: argparse.ArgumentParser) -> None:
                    help="Minimum adaptive rank (default: 16)")
     g.add_argument("--rank-max", type=int, default=128,
                    help="Maximum adaptive rank (default: 128)")
-    g.add_argument("--timestep-focus", type=str, default="texture",
-                   help="Timestep focus: texture (default), structure, balanced, or low,high")
+    g.add_argument("--timestep-focus", type=str, default="balanced",
+                   help="Timestep focus: balanced (default), texture, structure, or low,high")
     g.add_argument("--fisher-runs", type=int, default=None,
                    help="Number of estimation runs (default: auto from dataset size)")
     g.add_argument("--fisher-batches", type=int, default=None,

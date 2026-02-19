@@ -105,9 +105,9 @@ def _step_focus(a: dict) -> None:
     section("Timestep Focus")
     _msg = (
         "  Controls which aspect of the audio the analysis targets:\n"
-        "    texture   -- timbre, sonic character (default for style transfer)\n"
+        "    balanced   -- full timestep range (recommended)\n"
+        "    texture    -- timbre, sonic character (style transfer only)\n"
         "    structure  -- rhythm, tempo, beat grid\n"
-        "    balanced   -- full timestep range (no focus)\n"
     )
     if is_rich_active() and console is not None:
         console.print(f"  [dim]{_msg}[/]")
@@ -117,9 +117,9 @@ def _step_focus(a: dict) -> None:
     a["timestep_focus"] = menu(
         "Timestep focus",
         [
-            ("texture", "Texture / style transfer (recommended)"),
+            ("balanced", "Balanced (recommended)"),
+            ("texture", "Texture / style transfer"),
             ("structure", "Structure / rhythm transfer"),
-            ("balanced", "Balanced (no focus)"),
         ],
         default=1,
         allow_back=True,
@@ -216,7 +216,7 @@ def _step_confirm(a: dict) -> None:
             raise GoBack
 
     print(f"  Dataset:  {n_files} preprocessed samples")
-    print(f"  Focus:    {a.get('timestep_focus', 'texture')}")
+    print(f"  Focus:    {a.get('timestep_focus', 'balanced')}")
     print(f"  Ranks:    {a.get('rank', 64)} (base), "
           f"{a.get('rank_min', 16)}-{a.get('rank_max', 128)}")
     print(f"  Est time: ~{est_min:.0f} min\n")
@@ -324,7 +324,7 @@ def wizard_preprocessing_pp(preset: dict | None = None) -> argparse.Namespace:
         rank=answers.get("rank", 64),
         rank_min=answers.get("rank_min", 16),
         rank_max=answers.get("rank_max", 128),
-        timestep_focus=answers.get("timestep_focus", "texture"),
+        timestep_focus=answers.get("timestep_focus", "balanced"),
         fisher_runs=None,
         fisher_batches=None,
         convergence_patience=5,

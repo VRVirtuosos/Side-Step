@@ -38,9 +38,9 @@ Instead of training every layer with the same capacity (flat rank), Preprocessin
 2.  **Model Selection**: Pick the model you intend to train on (usually `base`).
 3.  **Dataset**: Point to your folder of `.pt` files.
 4.  **Timestep Focus**: Choose how the analysis should "listen" to your audio:
-    - **Texture** (Default): Focuses on timbre and sound design. Best for style transfer.
+    - **Balanced** (Default): Full timestep range. Recommended for most use cases.
+    - **Texture**: Focuses on timbre and sound design. Best for style transfer only.
     - **Structure**: Focuses on rhythm, beat grids, and composition.
-    - **Balanced**: A mix of both.
 5.  **Rank Budget**:
     - **Base Rank**: The median target (e.g., 64).
     - **Min/Max**: The floor and ceiling for adaptive ranks (e.g., 16 to 128).
@@ -65,7 +65,7 @@ uv run train.py fisher \
   --rank 64 \
   --rank-min 16 \
   --rank-max 128 \
-  --timestep-focus texture
+  --timestep-focus balanced
 ```
 
 ### Key Arguments
@@ -73,7 +73,7 @@ uv run train.py fisher \
 | Argument | Description | Default |
 | :--- | :--- | :--- |
 | `--dataset-dir` | Path to folder with `.pt` files (Required) | - |
-| `--timestep-focus` | `texture`, `structure`, `balanced` | `texture` |
+| `--timestep-focus` | `balanced`, `texture`, `structure` | `balanced` |
 | `--rank` | Target median rank | `64` |
 | `--rank-min` | Minimum rank for any layer | `16` |
 | `--rank-max` | Maximum rank for any layer | `128` |

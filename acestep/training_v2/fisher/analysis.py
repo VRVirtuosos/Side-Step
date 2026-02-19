@@ -155,7 +155,7 @@ def run_fisher_analysis(
     base_rank: int = 64,
     rank_min: int = 16,
     rank_max: int = 128,
-    timestep_focus: str = "texture",
+    timestep_focus: str = "balanced",
     num_runs: Optional[int] = None,
     batches_per_run: Optional[int] = None,
     convergence_patience: int = 5,

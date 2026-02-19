@@ -241,7 +241,30 @@ def _default_inference_steps(a: dict) -> int:
 def step_training(a: dict) -> None:
     """Core training hyperparameters."""
     section("Training Settings (press Enter for defaults)")
-    a["learning_rate"] = ask("Learning rate", default=a.get("learning_rate", 1e-4), type_fn=float, allow_back=True)
+
+    _pp_active = _has_fisher_map(a)
+    _lr_default = 5e-5 if _pp_active else 1e-4
+    if _pp_active:
+        _pp_hint = (
+            "  Preprocessing++ detected -- adaptive ranks overfit faster.\n"
+            "  Recommended learning rate: ~5e-5 (lower than usual).\n"
+        )
+        if is_rich_active() and console is not None:
+            console.print(f"  [yellow]{_esc(_pp_hint)}[/]")
+        else:
+            print(_pp_hint)
+
+    a["learning_rate"] = ask("Learning rate", default=a.get("learning_rate", _lr_default), type_fn=float, allow_back=True)
+
+    if _pp_active and a["learning_rate"] > 1e-4:
+        _lr_warn = (
+            f"  Learning rate {a['learning_rate']:.1e} is high for Preprocessing++.\n"
+            "  This may cause overfitting or garbled output. Consider <= 1e-4.\n"
+        )
+        if is_rich_active() and console is not None:
+            console.print(f"  [yellow]{_esc(_lr_warn)}[/]")
+        else:
+            print(_lr_warn)
     a["batch_size"] = ask("Batch size", default=a.get("batch_size", 1), type_fn=int, allow_back=True)
     a["gradient_accumulation"] = ask("Gradient accumulation", default=a.get("gradient_accumulation", 4), type_fn=int, allow_back=True)
     a["epochs"] = ask("Max epochs", default=a.get("epochs", 100), type_fn=int, allow_back=True)
